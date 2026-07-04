@@ -800,7 +800,7 @@ renderer.shadowMap.autoUpdate = false;
 renderer.shadowMap.needsUpdate = true;
 if('outputEncoding' in renderer) renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.4;
+renderer.toneMappingExposure = 1.05; // lower = more contrast/mood (was washing out flat)
 document.body.insertBefore(renderer.domElement, document.body.firstChild);
 
 window.addEventListener('resize', () => {
@@ -812,8 +812,8 @@ window.addEventListener('resize', () => {
 
 // ---- Scene & Camera ----
 const scene = new THREE.Scene();
-// Warm, smoky theater haze — extended for the larger map
-scene.fog = new THREE.Fog(0x0a0709, 12, 64);
+// Warm, smoky theater haze — darker & closer for atmospheric depth
+scene.fog = new THREE.Fog(0x050409, 9, 50);
 
 const CAM = new THREE.PerspectiveCamera(SETTINGS.fov, innerWidth/innerHeight, 0.05, 160);
 scene.add(CAM);
@@ -841,7 +841,7 @@ function renderFrame(){
 
 // ---- Lighting (Kino der Toten: moonlight + warm chandeliers) ----
 // Cold moonlight raking down through the shattered roof — the one shadow-caster
-const sun = new THREE.DirectionalLight(0xaebedd, 1.35);
+const sun = new THREE.DirectionalLight(0x9fb2e0, 1.7);
 sun.position.set(14, 26, 18);
 sun.castShadow = true;
 sun.shadow.mapSize.set(1024, 1024);
@@ -854,8 +854,9 @@ sun.shadow.normalBias = 0.02;
 scene.add(sun);
 scene.add(sun.target);
 
-scene.add(new THREE.AmbientLight(0x3a3040, 1.0));
-scene.add(new THREE.HemisphereLight(0x4a3a5a, 0x100c0a, 0.8));
+// Low, cool base fill — lets the warm point lights carve pools of light out of shadow
+scene.add(new THREE.AmbientLight(0x14121e, 0.34));
+scene.add(new THREE.HemisphereLight(0x2a2038, 0x080608, 0.36));
 
 function ptL(x,y,z,col,i,d,shadow){
   const l=new THREE.PointLight(col,i,d);
@@ -863,11 +864,11 @@ function ptL(x,y,z,col,i,d,shadow){
   if(shadow){l.castShadow=true;l.shadow.mapSize.set(1024,1024);l.shadow.bias=-0.0006;l.shadow.camera.far=d;}
   scene.add(l);return l;
 }
-// Fewer, stronger lights = far cheaper forward shading. Ambient/hemi carry the base fill.
-ptL(0,4.2,2,0xffb066,2.6,30);        // main auditorium
-ptL(0,4.2,-20,0xff5533,1.8,24);      // stage footlight wash
-ptL(0,4,18,0xffc488,1.6,24);         // foyer
-ptL(0,3.6,-30,0x7a5aff,1.1,20);      // backstage
+// Fewer, stronger lights = far cheaper forward shading. Pools of warm light in the dark.
+ptL(0,4.2,2,0xffab5a,3.4,30);        // main auditorium
+ptL(0,4.2,-20,0xff5030,2.4,24);      // stage footlight wash
+ptL(0,4,18,0xffbe78,2.2,24);         // foyer
+ptL(0,3.6,-30,0x7a5aff,1.5,20);      // backstage
 
 // ---- Materials ----
 function phong(col,spec=0x222222,shin=20,emissive=0){
@@ -2109,170 +2110,162 @@ function newWeapon(key){
 // ===== WEAPON MESH BUILDER =====
 function buildGunMesh(key,isPAP=false){
   const g=new THREE.Group();
-  // COD-inspired per-weapon skins: {body, metal, wood, accent}
   const SKINS={
-    m1911:   {body:0x9a9aa0,metal:0x2a2a2e,wood:0x3a2416,accent:0xb08d57},
-    deagle:  {body:0xb9bcc6,metal:0x2c2c34,wood:0x2a2a2a,accent:0xd4af37},
-    python:  {body:0x8a5a3a,metal:0x1a120b,wood:0x5a3218,accent:0x9a2b2b},
-    mp5:     {body:0x2b2f34,metal:0x141619,wood:0x24242a,accent:0x556070},
-    thompson:{body:0x4a3320,metal:0x1e150c,wood:0x5c3c1f,accent:0xc9a25a},
-    mp40:    {body:0x2e2e30,metal:0x151517,wood:0x33342c,accent:0x6a6a72},
-    ppsh:    {body:0x5a3a1e,metal:0x201509,wood:0x6a4526,accent:0x8a6a2a},
-    m16:     {body:0x2b3138,metal:0x14161a,wood:0x2b332b,accent:0x3f5a3f},
-    ak47:    {body:0x1d1d1d,metal:0x121212,wood:0x6a3f1e,accent:0xc0492b},
-    famas:   {body:0x2f3a2f,metal:0x151b15,wood:0x2b332b,accent:0x6b8f3a},
-    galil:   {body:0x3a4030,metal:0x181c14,wood:0x3a3a24,accent:0x7a8a3a},
-    m1garand:{body:0x6a4526,metal:0x24242a,wood:0x6a4526,accent:0x8a5a2a},
-    m14:     {body:0x5a3a20,metal:0x20222a,wood:0x5a3a20,accent:0x8a6a3a},
-    spas12:  {body:0x1e1e1e,metal:0x121212,wood:0x2a241c,accent:0x9a2b2b},
-    trenchgun:{body:0x3a2c18,metal:0x201a12,wood:0x5a3a1e,accent:0x8a6a2a},
-    m60:     {body:0x25291f,metal:0x14170f,wood:0x2a2a1c,accent:0x4a5a2a},
-    l96:     {body:0x202a24,metal:0x121812,wood:0x24281f,accent:0x3a5a3a},
-    rpg:     {body:0x3a3320,metal:0x1a1710,wood:0x2a2618,accent:0x7a6a2a},
-    minigun: {body:0x1a1a1a,metal:0x101010,wood:0x1a1a1a,accent:0xb8860b},
-    barrett: {body:0x2a2a20,metal:0x161610,wood:0x2a2820,accent:0x8a7a3a},
-    mp7:     {body:0x24272b,metal:0x121316,wood:0x1c1c1c,accent:0x5566aa},
-    uzi:     {body:0x1e1e1e,metal:0x121212,wood:0x1c1c1c,accent:0x888888},
-    kar98:   {body:0x5a3a20,metal:0x241a12,wood:0x5a3a20,accent:0x8a6a3a},
-    scar:    {body:0x2a2f24,metal:0x14170f,wood:0x2a2a1c,accent:0x7a8a3a},
-    aug:     {body:0x2b2f2b,metal:0x141614,wood:0x2b332b,accent:0x6b8f5a},
+    m1911:{body:0x8f9298,metal:0x26262b,wood:0x3a2416,accent:0xc9a24a},
+    deagle:{body:0xc2c5cf,metal:0x2c2c34,wood:0x2a2a2a,accent:0xd4af37},
+    python:{body:0x6a6d75,metal:0x1a120b,wood:0x5a3218,accent:0x9a2b2b},
+    mp5:{body:0x24272c,metal:0x141619,wood:0x24242a,accent:0x6a7788},
+    thompson:{body:0x3a2a18,metal:0x1e150c,wood:0x5c3c1f,accent:0xc9a25a},
+    mp40:{body:0x2a2a2c,metal:0x151517,wood:0x33342c,accent:0x7a7a82},
+    ppsh:{body:0x4a331c,metal:0x201509,wood:0x6a4526,accent:0x9a7a2a},
+    m16:{body:0x24282c,metal:0x14161a,wood:0x2b332b,accent:0x4f6a4f},
+    ak47:{body:0x1d1d1d,metal:0x121212,wood:0x6a3f1e,accent:0xc0492b},
+    famas:{body:0x2a332a,metal:0x151b15,wood:0x2b332b,accent:0x7b9f4a},
+    galil:{body:0x343a2a,metal:0x181c14,wood:0x3a3a24,accent:0x8a9a4a},
+    m1garand:{body:0x6a4526,metal:0x33363c,wood:0x6a4526,accent:0x9a6a3a},
+    m14:{body:0x5a3a20,metal:0x2a2d34,wood:0x5a3a20,accent:0x9a7a4a},
+    spas12:{body:0x1c1c1e,metal:0x121212,wood:0x2a241c,accent:0xaa3b2b},
+    trenchgun:{body:0x3a2c18,metal:0x201a12,wood:0x5a3a1e,accent:0x9a7a2a},
+    m60:{body:0x25291f,metal:0x33373a,wood:0x2a2a1c,accent:0x5a6a3a},
+    l96:{body:0x20261f,metal:0x33373a,wood:0x24281f,accent:0x4a6a4a},
+    rpg:{body:0x3a3320,metal:0x2a2620,wood:0x2a2618,accent:0x8a7a2a},
+    minigun:{body:0x1a1a1a,metal:0x33373a,wood:0x1a1a1a,accent:0xc8961b},
+    barrett:{body:0x2a2a20,metal:0x33373a,wood:0x2a2820,accent:0x9a8a4a},
+    mp7:{body:0x22252b,metal:0x121316,wood:0x1c1c1c,accent:0x6577bb},
+    uzi:{body:0x1c1c1e,metal:0x2a2d31,wood:0x1c1c1c,accent:0x9aa0aa},
+    kar98:{body:0x5a3a20,metal:0x2a2d34,wood:0x5a3a20,accent:0x9a7a4a},
+    scar:{body:0x33372c,metal:0x14170f,wood:0x2a2a1c,accent:0x8a9a5a},
+    aug:{body:0x2f342f,metal:0x141614,wood:0x2b332b,accent:0x7b9f6a},
   };
-  const sk=SKINS[key]||{body:0x556677,metal:0x222222,wood:0x5a3820,accent:0x888888};
-  const mat=isPAP
-    ?new THREE.MeshPhongMaterial({color:0x220000,emissive:0x440000,specular:0xff1100,shininess:150})
-    :new THREE.MeshPhongMaterial({color:sk.body,specular:0x555555,shininess:55});
-  const matDark=isPAP
-    ?new THREE.MeshPhongMaterial({color:0x0a0000,emissive:0x220000,specular:0xff1100,shininess:120})
-    :new THREE.MeshPhongMaterial({color:sk.metal,specular:0x3a3a3a,shininess:38});
-  const matWood=isPAP
-    ?new THREE.MeshPhongMaterial({color:0x1a0000,emissive:0x330000,shininess:80})
-    :new THREE.MeshPhongMaterial({color:sk.wood,specular:0x221108,shininess:18});
-  const accentCol=isPAP?0xff2200:sk.accent;
-  const matAccent=new THREE.MeshPhongMaterial({color:accentCol,emissive:accentCol,emissiveIntensity:isPAP?.55:.32,specular:0xffffff,shininess:130});
+  const sk=SKINS[key]||{body:0x35383e,metal:0x24262b,wood:0x5a3820,accent:0x8899aa};
+  const S=(c,r,m,e,ei)=>{const mm=new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:m});if(e!==undefined){mm.emissive=new THREE.Color(e);mm.emissiveIntensity=ei||1;}return mm;};
+  const poly = isPAP? S(0x1a0305,.5,.35,0x330000,.5) : S(sk.body,.6,.3);
+  const metal= isPAP? S(0x120204,.34,.92,0x330000,.4) : S(sk.metal,.34,.92);
+  const steel= isPAP? S(0x220305,.26,.96,0x440000,.5): S(0x44474e,.24,.97);
+  const wood = isPAP? S(0x230003,.5,.2,0x330000,.4) : S(sk.wood,.58,.06);
+  const acc  = isPAP? S(0xff2200,.3,.6,0xff1500,.9) : S(sk.accent,.34,.7,sk.accent,.3);
+  const darkp= S(0x0b0c0f,.7,.25);
+  const glass= S(0x0a1420,.1,.4,0x0a2a44,.6);
+
+  const P=(geo,mat,x,y,z,rx,ry,rz)=>{const m=new THREE.Mesh(geo,mat);m.position.set(x||0,y||0,z||0);m.rotation.set(rx||0,ry||0,rz||0);g.add(m);return m;};
+  const B=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
+  const C=(rt,rb,h,s)=>new THREE.CylinderGeometry(rt,rb,h,s||16);
+  const TG=(r,t)=>new THREE.TorusGeometry(r,t,10,20);
+  function railTop(x,y,z0,z1){const len=Math.abs(z1-z0),dir=z1>z0?1:-1;P(B(.018,.008,len),metal,x,y,(z0+z1)/2);const n=Math.max(3,Math.floor(len/.028));for(let i=0;i<n;i++)P(B(.024,.012,.012),metal,x,y+.008,z0+(i+.5)*(len/n)*dir);}
+  function ironSights(fz,rz){P(B(.006,.03,.012),metal,0,.05,fz);P(B(.028,.026,.012),metal,0,.052,rz);P(B(.01,.02,.008),darkp,0,.058,rz);}
+  function muzzle(z,rad){P(C(rad*1.5,rad*1.4,.07,14),metal,0,.02,z,Math.PI/2);for(let i=0;i<3;i++)P(B(rad*2.5,.006,.01),darkp,0,.02,z+.005-i*.018);}
+  function curvedMag(x,y,z,h,mat){const seg=5;for(let i=0;i<seg;i++){const t=i/(seg-1);P(B(.052,h/seg*1.12,.088),mat,x,y-i*(h/seg)*.9,z+t*.05,-t*.4);}P(B(.05,.02,.07),darkp,x,y-h*.86,z+.09);}
+  function pistolGrip(z,mat,ang){P(B(.052,.15,.08),mat,0,-.085,z,ang);for(let i=0;i<3;i++)P(B(.055,.005,.083),darkp,0,-.05-i*.03,z);}
+  function triggerAssembly(z){P(TG(.028,.006),metal,0,-.028,z,0,Math.PI/2);P(B(.008,.028,.012),metal,0,-.02,z);}
 
   if(key==='thundergun'){
-    // Wide tube body
-    const body=new THREE.Mesh(cyl(.08,.06,.45,12),new THREE.MeshPhongMaterial({color:0xcc9922,specular:0x886600,shininess:60}));
-    body.rotation.x=Math.PI/2;body.position.set(0,0,-.2);g.add(body);
-    const barrel=new THREE.Mesh(cyl(.055,.07,.25,12),new THREE.MeshPhongMaterial({color:0xddaa33,specular:0xaa7700,shininess:80}));
-    barrel.rotation.x=Math.PI/2;barrel.position.set(0,0,-.5);g.add(barrel);
-    const tank=new THREE.Mesh(sph(.07),new THREE.MeshPhongMaterial({color:0x888855,shininess:40}));
-    tank.position.set(-.05,.05,.05);g.add(tank);
-    // Glow rings
-    for(let i=0;i<3;i++){
-      const r=new THREE.Mesh(new THREE.TorusGeometry(.06,.008,6,12),new THREE.MeshBasicMaterial({color:0xffcc00}));
-      r.rotation.y=Math.PI/2;r.position.set(0,0,-.1-i*.12);g.add(r);
-    }
+    P(C(.09,.07,.46,20),S(0xcc9922,.3,.9,0x2a1e00,.4),0,0,-.2,Math.PI/2);
+    P(C(.06,.075,.26,20),S(0xddaa33,.25,.95,0x3a2a00,.5),0,0,-.5,Math.PI/2);
+    P(sph(.075,14,12),S(0x777755,.4,.8),-.05,.05,.05);
+    for(let i=0;i<4;i++)P(TG(.065,.01),new THREE.MeshBasicMaterial({color:0xffdd44}),0,0,-.08-i*.11,0,Math.PI/2);
+    pistolGrip(.02,S(0x3a2a12,.6,.2),.28);
   } else if(key==='wunder'){
-    // Tesla coil style
-    const body=new THREE.Mesh(cyl(.055,.065,.4,12),new THREE.MeshPhongMaterial({color:0x334488,specular:0x2244aa,shininess:80}));
-    body.rotation.x=Math.PI/2;body.position.set(0,0,-.18);g.add(body);
-    const coilMat=new THREE.MeshBasicMaterial({color:0x4488ff});
-    for(let i=0;i<4;i++){
-      const coil=new THREE.Mesh(new THREE.TorusGeometry(.065,.012,6,12),coilMat);
-      coil.rotation.y=Math.PI/2;coil.position.set(0,0,-.06-i*.1);g.add(coil);
-    }
-    const tip=new THREE.Mesh(cyl(.02,.005,.18,8),new THREE.MeshBasicMaterial({color:0x88ccff}));
-    tip.rotation.x=Math.PI/2;tip.position.set(0,.01,-.5);g.add(tip);
-    // Blue glow ball
-    const ball=new THREE.Mesh(sph(.04),new THREE.MeshBasicMaterial({color:0x4499ff}));
-    ball.position.set(0,.01,-.62);g.add(ball);
+    P(C(.055,.065,.42,20),S(0x2a3a66,.3,.85,0x0a1a44,.5),0,0,-.18,Math.PI/2);
+    for(let i=0;i<5;i++)P(TG(.07,.014),new THREE.MeshBasicMaterial({color:0x55aaff}),0,0,-.04-i*.09,0,Math.PI/2);
+    P(C(.02,.005,.2,12),new THREE.MeshBasicMaterial({color:0x99ddff}),0,.01,-.52,Math.PI/2);
+    P(sph(.05,14,12),new THREE.MeshBasicMaterial({color:0x55aaff}),0,.01,-.64);
+    pistolGrip(.02,S(0x1a2233,.5,.4),.28);
   } else if(key==='rpg'){
-    const body=new THREE.Mesh(cyl(.04,.04,.55,8),mat);
-    body.rotation.x=Math.PI/2;body.position.set(0,0,-.25);g.add(body);
-    const tip=new THREE.Mesh(cyl(.015,.04,.18,8),mat);
-    tip.rotation.x=Math.PI/2;tip.position.set(0,0,-.58);g.add(tip);
-    const grip=new THREE.Mesh(new THREE.BoxGeometry(.05,.12,.05),matDark);
-    grip.position.set(0,-.1,-.2);g.add(grip);
+    P(C(.045,.045,.6,18),metal,0,0,-.26,Math.PI/2);
+    P(C(.06,.045,.1,18),metal,0,0,.02,Math.PI/2);
+    P(C(.02,.05,.2,16),acc,0,0,-.6,Math.PI/2);            // warhead
+    P(C(.024,.024,.16,14),metal,0,.06,-.15,Math.PI/2);    // optic tube
+    pistolGrip(-.12,poly,.2); pistolGrip(-.32,poly,.2);
   } else if(key==='minigun'){
-    // Rotating barrel assembly
-    for(let i=0;i<6;i++){
-      const a=i*(Math.PI/3);
-      const b=new THREE.Mesh(cyl(.018,.018,.5,6),mat);
-      b.rotation.x=Math.PI/2;
-      b.position.set(Math.cos(a)*.045,Math.sin(a)*.045,-.25);
-      g.add(b);
-    }
-    const body=new THREE.Mesh(cyl(.055,.065,.35,12),matDark);
-    body.rotation.x=Math.PI/2;body.position.set(0,0,-.05);g.add(body);
-    const grip=new THREE.Mesh(new THREE.BoxGeometry(.06,.14,.06),matDark);
-    grip.position.set(0,-.12,0);g.add(grip);
-  } else if(key==='l96'){
-    // Long sniper
-    const body=new THREE.Mesh(new THREE.BoxGeometry(.06,.08,.55),mat);
-    body.position.set(0,0,-.25);g.add(body);
-    const barrel=new THREE.Mesh(cyl(.014,.014,.4,8),matDark);
-    barrel.rotation.x=Math.PI/2;barrel.position.set(0,.02,-.6);g.add(barrel);
-    const scope=new THREE.Mesh(cyl(.022,.022,.22,8),matDark);
-    scope.rotation.x=Math.PI/2;scope.position.set(0,.055,-.2);g.add(scope);
-    const scopeMount=new THREE.Mesh(new THREE.BoxGeometry(.03,.025,.22),matDark);
-    scopeMount.position.set(0,.034,-.2);g.add(scopeMount);
-    const stock=new THREE.Mesh(new THREE.BoxGeometry(.055,.06,.18),matWood);
-    stock.position.set(0,-.01,.12);g.add(stock);
-    const grip=new THREE.Mesh(new THREE.BoxGeometry(.05,.14,.06),matWood);
-    grip.position.set(0,-.1,-.05);g.add(grip);
+    for(let i=0;i<6;i++){const a=i*(Math.PI/3);P(C(.016,.016,.52,10),steel,Math.cos(a)*.05,.02+Math.sin(a)*.05,-.26,Math.PI/2);}
+    P(C(.075,.075,.14,18),metal,0,.02,.02,Math.PI/2);      // rotor housing
+    P(C(.06,.07,.34,18),poly,0,0,-.1,Math.PI/2);
+    P(B(.16,.14,.2),darkp,.12,-.02,0); P(TG(.05,.02),metal,.12,-.02,-.02,0,Math.PI/2); // ammo drum
+    pistolGrip(.06,poly,.15);
+  } else if(key==='l96'||key==='barrett'){
+    P(B(.062,.075,.62),poly,0,0,-.26);                    // long chassis
+    P(C(.016,.015,.5,16),steel,0,.02,-.66,Math.PI/2); muzzle(-.9,.017);
+    P(B(.03,.05,.5),metal,0,.05,-.24);                    // scope rail
+    P(C(.026,.026,.28,18),metal,0,.09,-.22,Math.PI/2);    // scope
+    P(C(.03,.03,.04,18),metal,0,.09,-.36,Math.PI/2); P(C(.022,.022,.01,18),glass,0,.09,-.37,Math.PI/2);
+    P(C(.026,.026,.04,18),metal,0,.09,-.08,Math.PI/2);
+    P(B(.05,.09,.24),poly,0,-.02,.14); P(B(.03,.12,.06),poly,0,-.09,.2); // thumbhole stock
+    if(key==='barrett'){P(B(.14,.02,.5),acc,0,.08,-.24);} // top rail accent
+    pistolGrip(-.02,poly,.3); triggerAssembly(-.04);
+    P(C(.04,.06,.03,6),metal,0,-.06,-.7,Math.PI/2);       // muzzle brake big
+  } else if(key==='kar98'){
+    P(B(.05,.07,.5),wood,0,-.005,-.14);                   // wood stock/body
+    P(C(.014,.014,.5,14),steel,0,.03,-.5,Math.PI/2);      // long barrel
+    P(B(.03,.05,.42),wood,0,-.02,-.42);                   // forestock
+    P(C(.012,.012,.09,10),metal,.035,.04,.02,0,0,Math.PI/2); P(sph(.02,10,8),metal,.08,.04,.02); // bolt handle
+    ironSights(-.5,-.06); P(B(.05,.12,.14),wood,0,-.03,.18); // butt
+    triggerAssembly(-.02);
   } else if(key==='spas12'||key==='trenchgun'){
-    const body=new THREE.Mesh(new THREE.BoxGeometry(.075,.09,.42),mat);
-    body.position.set(0,0,-.18);g.add(body);
-    const barrel=new THREE.Mesh(cyl(.025,.025,.32,8),matDark);
-    barrel.rotation.x=Math.PI/2;barrel.position.set(0,.03,-.46);g.add(barrel);
-    const pump=new THREE.Mesh(cyl(.03,.03,.15,8),matWood);
-    pump.rotation.x=Math.PI/2;pump.position.set(0,-.01,-.35);g.add(pump);
-    const stock=new THREE.Mesh(new THREE.BoxGeometry(.06,.065,.2),matWood);
-    stock.position.set(0,-.01,.12);g.add(stock);
-    const grip=new THREE.Mesh(new THREE.BoxGeometry(.05,.13,.055),matWood);
-    grip.position.set(0,-.1,-.05);g.add(grip);
-  } else if(key==='m60'||key==='minigun'){
-    const body=new THREE.Mesh(new THREE.BoxGeometry(.07,.09,.55),mat);
-    body.position.set(0,0,-.22);g.add(body);
-    const barrel=new THREE.Mesh(cyl(.018,.016,.45,8),matDark);
-    barrel.rotation.x=Math.PI/2;barrel.position.set(0,.025,-.57);g.add(barrel);
-    const mag=new THREE.Mesh(new THREE.BoxGeometry(.1,.06,.16),matDark);
-    mag.position.set(0,-.07,-.15);g.add(mag);
-    const grip=new THREE.Mesh(new THREE.BoxGeometry(.055,.15,.058),matDark);
-    grip.position.set(0,-.13,-.08);g.add(grip);
-    const stock=new THREE.Mesh(new THREE.BoxGeometry(.06,.07,.22),matWood);
-    stock.position.set(0,-.01,.14);g.add(stock);
+    const fw=key==='trenchgun'?wood:poly;
+    P(B(.07,.085,.44),poly,0,0,-.2);
+    P(C(.024,.024,.4,16),steel,0,.032,-.44,Math.PI/2);    // barrel
+    P(C(.02,.02,.34,16),metal,0,-.02,-.4,Math.PI/2);      // tube mag under
+    P(C(.03,.03,.15,16),fw,0,-.02,-.34,Math.PI/2);        // pump
+    for(let i=0;i<4;i++)P(B(.062,.006,.012),darkp,0,-.02,-.4+i*.03);
+    ironSights(-.5,-.02);
+    P(B(.06,.08,.22),fw,0,-.01,.16); P(B(.05,.11,.06),fw,0,-.08,.12);
+    triggerAssembly(-.02);
+    if(key==='spas12')P(B(.014,.02,.42),acc,0,.07,-.2);
+  } else if(key==='m60'){
+    P(B(.07,.09,.55),poly,0,0,-.22);
+    P(C(.018,.016,.5,16),steel,0,.03,-.58,Math.PI/2); muzzle(-.86,.02);
+    P(B(.13,.07,.18),metal,0,-.05,-.12); P(B(.14,.02,.19),acc,0,-.02,-.12); // belt box
+    for(let i=0;i<5;i++)P(C(.01,.01,.03,8),S(0xcaa24a,.4,.8),-.05+i*.025,-.02,-.02,0,0,Math.PI/2); // belt rounds
+    P(B(.03,.05,.4),metal,0,.055,-.2); railTop(0,.08,-.02,-.4);
+    P(B(.06,.09,.22),poly,0,-.01,.16);
+    pistolGrip(.02,poly,.2); triggerAssembly(0);
+    P(C(.01,.01,.16,8),metal,0,-.12,-.5,Math.PI/2,0,.5); P(C(.01,.01,.16,8),metal,0,-.12,-.5,Math.PI/2,0,-.5); // bipod
   } else if(key==='m1911'||key==='deagle'||key==='python'){
-    // Pistol
-    const body=new THREE.Mesh(new THREE.BoxGeometry(.07,.1,.22),mat);
-    body.position.set(0,.01,-.1);g.add(body);
-    const barrel=new THREE.Mesh(cyl(.016,.016,.16,8),matDark);
-    barrel.rotation.x=Math.PI/2;barrel.position.set(0,.035,-.28);g.add(barrel);
-    const grip=new THREE.Mesh(new THREE.BoxGeometry(.06,.14,.08),mat);
-    grip.rotation.x=.2;grip.position.set(0,-.1,-.02);g.add(grip);
-    const trigger=new THREE.Mesh(new THREE.BoxGeometry(.012,.06,.02),matDark);
-    trigger.position.set(0,-.04,-.1);g.add(trigger);
-    if(key==='python'){// cylinder
-      const cyl2=new THREE.Mesh(new THREE.CylinderGeometry(.028,.028,.06,12),matDark);
-      cyl2.rotation.z=Math.PI/2;cyl2.position.set(0,.01,-.14);g.add(cyl2);
-    }
+    const bigp=key==='deagle';
+    P(B(bigp?.066:.06,bigp?.062:.052,.24),metal,0,.032,-.11);   // slide
+    for(let i=0;i<5;i++)P(B((bigp?.068:.062),.028,.007),darkp,0,.032,-.02-i*.013); // serrations
+    P(B(.058,.05,.2),poly,0,-.015,-.09);                        // frame
+    P(C(.015,.015,.07,14),steel,0,.032,-.25,Math.PI/2);         // barrel
+    P(B(.006,.016,.008),metal,0,.062,-.21); P(B(.024,.014,.01),metal,0,.058,-.005); // sights
+    P(B(bigp?.016:.012,.018,.22),acc,0,.062,-.11);              // slide top accent
+    pistolGrip(-.005,poly,.32); triggerAssembly(-.06);
+    if(key==='python'){P(C(.03,.03,.07,14),metal,0,.01,-.14,0,0,Math.PI/2);P(C(.014,.014,.24,14),steel,0,.03,-.26,Math.PI/2);} // revolver cylinder + longer barrel
+    if(bigp)P(B(.02,.05,.1),metal,0,-.06,-.24);                 // deagle underlug
   } else {
-    // Generic rifle/SMG
-    const body=new THREE.Mesh(new THREE.BoxGeometry(.062,.082,key.includes('mp')||key==='ppsh'?.32:.45),mat);
-    body.position.set(0,0,key.includes('mp')||key==='ppsh'?-.14:-.18);g.add(body);
-    const bLen=key.includes('mp')||key==='ppsh'?.22:.3;
-    const barrel=new THREE.Mesh(cyl(.016,.015,bLen,8),matDark);
-    barrel.rotation.x=Math.PI/2;barrel.position.set(0,.025,-(key.includes('mp')||key==='ppsh'?.32:.42));g.add(barrel);
-    const magH=key==='ppsh'?.05:.16;
-    const mag=new THREE.Mesh(new THREE.BoxGeometry(.04,magH,.06),matDark);
-    mag.position.set(0,-(.04+magH/2),key.includes('mp')||key==='ppsh'?-.1:-.14);g.add(mag);
-    const stock=new THREE.Mesh(new THREE.BoxGeometry(.055,.062,.16),matWood);
-    stock.position.set(0,-.008,.1);g.add(stock);
-    const grip=new THREE.Mesh(new THREE.BoxGeometry(.048,.13,.052),matWood);
-    grip.rotation.x=.15;grip.position.set(0,-.1,-.06);g.add(grip);
-    // Iron sight
-    const fs=new THREE.Mesh(new THREE.BoxGeometry(.015,.025,.012),matDark);
-    fs.position.set(0,.05,-.35);g.add(fs);
-  }
-  // Signature accent rail — a slim colored strip along the top of the receiver
-  if(key!=='thundergun'&&key!=='wunder'){
-    const bb=new THREE.Box3().setFromObject(g);
-    if(isFinite(bb.min.z)){
-      const zc=(bb.min.z+bb.max.z)/2, zl=bb.max.z-bb.min.z;
-      const rail=new THREE.Mesh(new THREE.BoxGeometry(.02,.012,Math.max(.08,zl*.42)),matAccent);
-      rail.position.set(0,bb.max.y+.006,zc);g.add(rail);
-    }
+    // ---- detailed generic AR / SMG ----
+    const isW = ['ak47','thompson','ppsh','m1garand','m14','galil'].includes(key);
+    const isSMG = ['mp5','mp40','uzi','mp7','ppsh','thompson'].includes(key);
+    const isBull = ['famas','aug'].includes(key);
+    const bodyMat = isW? wood : poly;
+    const L = isBull? .5 : isSMG? .3 : .42;
+    const zc = -L/2 - .04;
+    P(B(.06,.078,L),poly,0,0,zc);                               // receiver
+    P(B(.066,.028,L*.92),metal,0,.032,zc);                     // upper
+    P(B(.062,.02,L),darkp,0,-.042,zc);                         // lower lip
+    const hz = isBull? zc+.05 : zc-L*.34;
+    P(B(.05,.055,L*.5),bodyMat,0,-.006,hz);                    // handguard
+    for(let i=0;i<4;i++)P(B(.056,.006,.01),darkp,0,.02,hz-.06-i*.03);
+    const bz = isBull? -L*.55 : -L-.06;
+    P(C(.014,.013,isBull?.24:.3,14),steel,0,.02,bz,Math.PI/2); // barrel
+    muzzle(bz-(isBull?.12:.16),.015);
+    railTop(0,.052,zc+L*.36,zc-L*.36);
+    if(['m16','scar','aug','famas','galil','m14'].includes(key)){
+      P(B(.05,.028,.07),darkp,0,.076,zc+.02);                  // optic base
+      P(C(.02,.02,.06,16),metal,0,.092,zc+.02,Math.PI/2);
+      P(C(.017,.017,.008,16),glass,0,.092,zc-.008,Math.PI/2);
+      P(C(.004,.004,.004,8),S(0xff2020,.2,0,0xff0000,3),0,.092,zc-.012,Math.PI/2); // red dot
+    } else { ironSights(zc-L*.4,zc+L*.36); }
+    if(key==='ak47') curvedMag(0,-.05,zc-.02,.2,wood);
+    else if(key==='ppsh') P(C(.075,.075,.11,18),metal,0,-.085,zc,Math.PI/2); // drum
+    else if(key==='m1garand') P(B(.05,.05,.1),metal,0,-.05,zc);
+    else curvedMag(0,-.048,zc-.02,.17,isSMG?darkp:metal);
+    if(isW && !isBull) P(B(.055,.09,.22),wood,0,-.008,zc+L*.5+.08);       // wood stock
+    else if(isSMG){P(B(.018,.055,.14),darkp,0,-.02,zc+L*.5+.04);P(B(.05,.05,.03),poly,0,-.02,zc+L*.5+.11);}
+    else if(!isBull){P(B(.048,.06,.16),poly,0,-.006,zc+L*.5+.06);P(B(.056,.1,.03),poly,0,-.012,zc+L*.5+.14);P(B(.02,.05,.14),darkp,0,-.05,zc+L*.5+.03);}
+    pistolGrip(isBull? zc+L*.36 : zc+.05, isW?wood:poly, .3);
+    triggerAssembly(isBull? zc+L*.34 : zc+.02);
+    P(B(.008,.02,.05),metal,.034,.03,zc+.05);                  // charging handle
+    P(B(.012,.016,L*.55),acc,.031,.006,zc);                    // side accent
   }
   return g;
 }
@@ -2365,6 +2358,13 @@ const DEV={enabled:false,god:false,freeze:false,noReload:false};
 const gunGroup=new THREE.Group();
 gunGroup.position.set(0,-0.02,0);
 CAM.add(gunGroup);
+// Dedicated viewmodel light — keeps the weapon readable in dark rooms without lighting the world.
+const gunLight=new THREE.PointLight(0xfff0e0, 1.5, 1.6, 2);
+gunLight.position.set(0.12, 0.05, 0.05);
+CAM.add(gunLight);
+const gunFill=new THREE.PointLight(0x88aaff, 0.5, 1.4, 2);
+gunFill.position.set(-0.2, -0.05, 0.1);
+CAM.add(gunFill);
 let currentGunMesh=null;
 let gunRecoil=0;
 let mfTimer=0;
