@@ -2,7 +2,7 @@
 
 _Living snapshot for prompting. Updated at the end of every Map-V2 part._
 
-**Version:** v3.4.0 (Map-V2 Part 3 complete) · **Repo:** khatibapp/zombie-survival · branch `main`
+**Version:** v3.5.0 (Map-V2 Part 4 complete) · **Repo:** khatibapp/zombie-survival · branch `main`
 **Ship flow:** bump `package.json` → commit → `git tag vX.Y.Z` → push tag → GitHub Actions builds `ZombieSurvival-Setup-<ver>.exe` + `latest.yml` → in-app updater.
 
 ## What the game is
@@ -13,7 +13,7 @@ Electron desktop app, auto-updates from GitHub Releases. Fully offline. WWII-era
 - [x] **Part 1 — Footprint reshape** (v3.2.0). Hub-and-spoke → looped network.
 - [x] **Part 2 — Real vertical layers** (v3.3.0). 3 layers, 27 zones, 7 stairs/ramps/ladder.
 - [x] **Part 3 — Multi-floor pathfinding** (v3.4.0). Layered A* + vertical portals; fallback deleted.
-- [ ] Part 4 — Outdoors (skyline, weather roll, collapsed bridge)
+- [x] **Part 4 — Outdoors** (v3.5.0). Skyline silhouette + per-run weather + collapsed bridge → bell tower.
 - [ ] Part 5 — Logical placement audit + door-swing fix
 - [ ] Part 6 — Life pass (clutter, motion, sound, light balance)
 
@@ -55,9 +55,11 @@ Weapons (pistol + Galil/MP5/M16A1/SPAS-12, Pack-a-Punch), 7 perks (Jugg, Speed C
 ## Pathfinding (Part 3)
 Layered A* over one walkability grid per floor (ground/basement/upper), joined by **vertical portal edges**: every ramp/stair/ladder is forced walkable on both its layers and linked cell-by-cell (2-way); the Catwalk hole is a 1-way down drop-through. A* uses a proper closed-set (each node expanded once). LOS beeline only fires when the zombie is on the **player's floor**. The cross-floor direct-steer fallback is **deleted** — a pathless zombie holds and retries. Door purchases reconnect the graph live (nav cells store their door index; `navPassable` reads `door.open`). Nav-debug overlay (backtick → N) draws all three floors color-coded (green/orange/blue) + yellow portal links + live zombie paths at their floor height. Verified: Boiler→Rooftop (102-wp) and behind-stage→Atrium (88-wp) both route correctly.
 
+## Outdoors (Part 4)
+Skyline: a fog-exempt silhouette ring on the horizon (28 ruined buildings, a church spire echoing the Chapel, burned trees, 4 drifting smoke columns) — visible over the Rooftop parapets, so looking out shows a world, not void. Weather: rolled once per run — **RAIN** (courtyard rain streaks + reflective puddle decals on outdoor floors + more-frequent thunder/lightning) or **CLEAR** (drifting cloud layer, brighter moon halo + soft moonlight, colder fog, no lightning); `_fogBase` carries the weather fog colour through round changes. Collapsed **sky-bridge** off the Rooftop's east parapet gap (missing planks, one broken railing, open on the south side) to a **Bell Tower** stub (bell landmark + SPAS-12 wall-buy) — same upper nav layer, so zombies chase you across it. Map footprint now reaches x≈57 east.
+
 ## Known gaps / next
 - A* expansion is uncapped-to-graph-size for completeness; worst-case cross-2-floor repaths flood — watch framerate with many zombies far above/below you (perf playtest item).
-- Outdoors partial: skybox+moon only; no skyline/weather/bridge (Part 4).
 - Placement not yet spatially audited; door-swing parking bug (Part 5).
 - Rooms still sparse between landmarks; no per-room ambient audio/motion (Part 6).
 - **Cosmetic:** stairwells descending into the basement don't yet cut a hole in the

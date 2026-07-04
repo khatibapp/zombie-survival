@@ -2014,9 +2014,11 @@ function buildMap(){
 
 
 const PERK_ORBS=[]; // global — animated in game loop
+let WEATHER='clear', _fogBase=0x050409, _clouds=[], _smoke=[]; // Part 4 outdoors/weather (declared early — used by buildOutdoorsV34 + loop)
 buildMapNew(); // OLD buildMap() is intentionally NOT called — clean new layout, nothing old left behind
 buildFloorsV3();// v3: adds BASEMENT + UPPER floors, stairs, drop-through, skybox (real verticality)
 buildLayersV32();// Map-V2 Part 2: full basement + upper LAYERS (Cold Storage, Tunnel, Power Room, Balcony, Attic, Rooftop)
+buildOutdoorsV34();// Map-V2 Part 4: skyline silhouette backdrop + collapsed plank bridge -> bell tower stub
 phase1Assets(); // load real PBR textures + IBL + film-grade pass (now that materials M exist)
 dressMap();     // Phase 2: architectural trim + columns + per-room set-dressing (additive, no nav impact)
 
@@ -2155,7 +2157,7 @@ function buildLayersV32(){
   // Rooftop over the Chapel (open sky) — Part 4 adds the plank bridge to a bell tower
   ROOMS.rooftop={x0:13,x1:35,z0:13,z1:33,fy:UY,open:true,name:'Rooftop'}; HZ_FLAT.push({x0:13,x1:35,z0:13,z1:33,fy:UY});
   flr(24,23,22,20,UY,std(0x1e1a16,.85,.05));
-  par(24,33.3,22,T,UY); par(35.3,23,T,20,UY); par(24,12.7,22,T,UY); par(13,32,T,2,UY);              // parapets (west x13 = attic wall/gap)
+  par(24,33.3,22,T,UY); par(35.3,17,T,8,UY); par(35.3,29,T,8,UY); par(24,12.7,22,T,UY); par(13,32,T,2,UY); // E parapet w/ gap z21..25 -> sky bridge
   ptL(24,UY+3,23,0x8899cc,1.4,24);
   for(const cz of [16,20]){ mesh(box(1.3,2.2,1.3),std(0x241f18,.7,.1),32,UY+1.1,cz); mesh(cyl(.5,.5,.6,10),std(0x141210,.6,.3),32,UY+2.3,cz); } // chimneys
   mesh(cyl(1.3,1.5,3,12),std(0x3a3a30,.5,.6),17,UY+1.5,29); addCol(COLS,17,29,1.5,1.5,UY);           // water tower
@@ -2170,6 +2172,53 @@ function buildLayersV32(){
   for(let i=0;i<7;i++){ const t=i/7; mesh(box(1.2,.5,1.0),std(0x3a352c,.85,.03),-51,UY*t+.1,8-t*8); } // debris ramp chunks
   for(const ex of [29.4,34.6]) for(const ez of [25.4,32.6]){ mesh(cyl(.08,.08,UY+1.2,8),std(0x2a2c30,.4,.8),ex,UY/2,ez); } // shaft cage posts
   for(let i=0;i<9;i++){ mesh(box(1.0,.05,.12),std(0x3a3d42,.5,.7),32,i*.55,25.6); }                   // ladder rungs
+}
+
+function buildOutdoorsV34(){ // Map-V2 Part 4 — skyline backdrop + collapsed sky-bridge -> bell tower
+  const H=4.2,T=0.45,UY=4.5;
+  const sil=new THREE.MeshBasicMaterial({color:0x0a0d16,fog:false}), sil2=new THREE.MeshBasicMaterial({color:0x0d1220,fog:false});
+  // ---- SKYLINE: ruined-city silhouette ring on the horizon (fog-exempt like the sky dome, so it never voids out) ----
+  for(let i=0;i<28;i++){ const a=i/28*Math.PI*2+0.15, rad=92+((i*37)%26), bx=Math.cos(a)*rad, bz=Math.sin(a)*rad;
+    const w=7+((i*13)%12), d=7+((i*7)%9), h=12+((i*17)%34);
+    mesh(box(w,h,d),(i%2?sil:sil2),bx,h/2,bz);
+    if(i%3===0){ const bw=w*.35; mesh(box(bw,h*.25,bw),sil,bx,h+h*.12,bz); }        // roof box / chimney
+    if(i%5===0){ mesh(box(1,h*.7,1),sil2,bx+w*.3,h*.35,bz); }                        // broken corner
+  }
+  // church spire (SE — echoes the Chapel), tallest thing on the horizon
+  { const sx=Math.cos(0.7)*104, sz=Math.sin(0.7)*104; mesh(box(9,30,9),sil,sx,15,sz);
+    const sp=new THREE.Mesh(new THREE.ConeGeometry(7,20,4),sil); sp.rotation.y=Math.PI/4; sp.position.set(sx,40,sz); scene.add(sp);
+    mesh(box(.5,3,.5),sil2,sx,51,sz); mesh(box(2.2,.5,.5),sil2,sx,50,sz); }          // cross finial
+  // burned trees (bare silhouettes, nearer the walls)
+  for(let i=0;i<16;i++){ const a=i/16*Math.PI*2+0.9, rad=66+((i*29)%22), tx=Math.cos(a)*rad, tz=Math.sin(a)*rad;
+    mesh(cyl(.25,.5,8,6),sil,tx,4,tz); for(let b=0;b<4;b++){ const ba=b/4*Math.PI*2+i; mesh(cyl(.06,.14,3,5),sil,tx+Math.cos(ba)*1.0,7,tz+Math.sin(ba)*1.0,0,0,ba*.6); } }
+  // smoke columns (slow drift animated in updateAtmosphere)
+  for(let i=0;i<4;i++){ const a=i/4*Math.PI*2+0.5, rad=96, sx=Math.cos(a)*rad, sz=Math.sin(a)*rad;
+    const col=new THREE.Mesh(new THREE.CylinderGeometry(3,8,50,8,1,true),new THREE.MeshBasicMaterial({color:0x0b0e16,transparent:true,opacity:.4,side:THREE.DoubleSide,depthWrite:false,fog:false})); col.position.set(sx,25,sz); scene.add(col); _smoke.push(col); }
+
+  // ---- COLLAPSED SKY-BRIDGE: Rooftop (east gap z21..25) -> Bell Tower stub ----
+  ROOMS.skybridge={x0:35,x1:47,z0:21,z1:25,fy:UY,open:true,name:'Collapsed Bridge'}; HZ_FLAT.push({x0:35,x1:47,z0:21,z1:25,fy:UY});
+  for(let i=0;i<12;i++){ if(i===4||i===8)continue; mesh(box(.95,.14,3.6),std(0x2a2118,.85,.05),35.5+i,UY-.06,23,0,(i%3-1)*.04,0); } // plank deck (2 missing = gaps)
+  mesh(box(12,.1,3.8),new THREE.MeshBasicMaterial({color:0x05060a,transparent:true,opacity:.35}),41,UY-.4,23);   // dark void under the gaps
+  for(const bz of [21.4,24.6]){ mesh(cyl(.06,.06,12,5),std(0x1a140c,.7,.2),41,UY-.5,bz,0,0,Math.PI/2); }         // support beams
+  for(let i=0;i<5;i++){ if(i===2)continue; mesh(cyl(.05,.05,.85,5),std(0x241c12,.7,.2),36+i*2.4,UY+.4,21.1); }   // broken railing (N side only)
+  mesh(box(11,.08,.08),std(0x241c12,.7,.2),41,UY+.8,21.1); addCol(COLS,41,20.9,6,.18,UY);                         // N rail + collider (S side open)
+
+  // ---- BELL TOWER stub (2nd building) ----
+  ROOMS.belltower={x0:47,x1:57,z0:15,z1:31,fy:UY,open:true,name:'Bell Tower'}; HZ_FLAT.push({x0:47,x1:57,z0:15,z1:31,fy:UY});
+  { const f=new THREE.Mesh(box(10,.3,16),std(0x1e1a14,.8,.05)); f.position.set(52,UY-.15,23); f.receiveShadow=true; scene.add(f); WORLD_HIT.push(f); }
+  const bw=(x,z,w,d)=>{ mesh(box(w,H,d),M.wall,x,UY+H/2,z); addCol(COLS,x,z,w/2+.02,d/2+.02,UY); };
+  bw(57.3,23,T,16); bw(52,14.7,10,T); bw(52,31.3,10,T);                                                          // E,N,S walls
+  mesh(box(T,1.2,6),std(0x2a2620,.7,.08),47.02,UY+.6,17.5); addCol(COLS,47,17.5,.25,3,UY);                       // W parapet z15..20.5
+  mesh(box(T,1.2,6),std(0x2a2620,.7,.08),47.02,UY+.6,28.5); addCol(COLS,47,28.5,.25,3,UY);                       // W parapet z25.5..31 (gap z21..25 = bridge)
+  ptL(52,UY+3,23,0x9aa6c8,1.5,22);
+  { const fr=std(0x241c12,.7,.2); for(const p of [[49,20],[49,26],[55,20],[55,26]]) mesh(box(.3,3.2,.3),fr,p[0],UY+1.6,p[1]); // bell frame
+    mesh(box(6.4,.3,.3),fr,52,UY+3.1,20); mesh(box(6.4,.3,.3),fr,52,UY+3.1,26);
+    const bell=new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.5,2.0,16,1,true),std(0x5a4a24,.4,.9)); bell.position.set(52,UY+1.7,23); scene.add(bell); addCol(COLS,52,23,1.5,1.5,UY);
+    const cap=new THREE.Mesh(new THREE.SphereGeometry(1.15,14,8,0,Math.PI*2,0,Math.PI/2),std(0x5a4a24,.4,.9)); cap.position.set(52,UY+2.7,23); scene.add(cap); }
+  // wall-buy reward sign on the E wall (interactable added to INTERACTABLES)
+  { const c=document.createElement('canvas');c.width=256;c.height=128;const g=c.getContext('2d'); g.fillStyle='#0d0a04';g.fillRect(0,0,256,128); g.strokeStyle='#ff6644';g.lineWidth=4;g.strokeRect(4,4,248,120);
+    g.fillStyle='#fff';g.font='bold 30px Arial';g.textAlign='center';g.fillText('SPAS-12',128,54); g.fillStyle='#ff8866';g.font='bold 22px Arial';g.fillText('BELL TOWER  1750',128,92);
+    const tx=new THREE.CanvasTexture(c);tx.encoding=THREE.sRGBEncoding; const s=new THREE.Mesh(new THREE.PlaneGeometry(2.4,1.2),new THREE.MeshStandardMaterial({map:tx,emissiveMap:tx,emissive:new THREE.Color(0xff6644),emissiveIntensity:.6,side:THREE.DoubleSide})); s.position.set(56.85,UY+1.5,23); s.rotation.y=-Math.PI/2; scene.add(s); ptL(55.5,UY+1.6,23,0xff6644,.7,5); }
 }
 // livingAtmosphere() is called near loop() — after ALL its globals (POWER_ON, mystGrp, ...) exist.
 
@@ -2219,6 +2268,20 @@ function livingAtmosphere(){
   }catch(e){}
   // --- lightning light ---
   _lightLight=new THREE.PointLight(0xc4d4ff,0,70); _lightLight.position.set(24,11,0); scene.add(_lightLight); _lightT=8+Math.random()*14;
+  // ---- WEATHER ROLL (per run): RAIN or CLEAR ----
+  WEATHER = Math.random()<0.5 ? 'rain' : 'clear';
+  _fogBase = WEATHER==='rain' ? 0x070810 : 0x0a0e1c;
+  if(scene.fog) scene.fog.color.setHex(_fogBase);
+  if(WEATHER==='clear'){
+    if(_rain) _rain.visible=false;
+    for(let i=0;i<7;i++){ const cl=new THREE.Mesh(new THREE.PlaneGeometry(46+Math.random()*34,20),new THREE.MeshBasicMaterial({color:0x171d2c,transparent:true,opacity:.30,depthWrite:false,fog:false})); cl.rotation.x=-Math.PI/2.2; cl.position.set((Math.random()-.5)*170,58+Math.random()*22,(Math.random()-.5)*170); cl._sp=.4+Math.random()*.5; scene.add(cl); _clouds.push(cl); }
+    const mg=new THREE.Mesh(new THREE.SphereGeometry(17,16,12),new THREE.MeshBasicMaterial({color:0xb2c0dc,transparent:true,opacity:.32,fog:false})); mg.position.set(90,80,70); scene.add(mg);
+    const ml=new THREE.DirectionalLight(0x9fb0d4,0.4); ml.position.set(90,80,70); scene.add(ml);
+    _lightT=1e9; // no lightning on a clear night
+  } else {
+    for(const p of [[24,.02,0],[24,4.52,23],[52,4.52,23]]){ const pd=new THREE.Mesh(new THREE.CircleGeometry(2.6,20),new THREE.MeshStandardMaterial({color:0x0a0f16,roughness:.05,metalness:.7,transparent:true,opacity:.7})); pd.rotation.x=-Math.PI/2; pd.position.set(p[0],p[1],p[2]); scene.add(pd); } // puddles
+    _lightT=4+Math.random()*7; // storm: sooner/more-frequent lightning
+  }
   // --- dust motes (Points) ---
   try{
     const N=150,pos=new Float32Array(N*3); for(let i=0;i<N;i++){pos[i*3]=(Math.random()-.5)*44;pos[i*3+1]=Math.random()*3.6+.3;pos[i*3+2]=(Math.random()-.5)*44;}
@@ -2240,8 +2303,11 @@ function _noise1(t){ return Math.sin(t)*.5+Math.sin(t*2.3+1.7)*.3+Math.sin(t*5.1
 function updateAtmosphere(dt,now){
   // flicker (only when powered)
   if(POWER_ON){ const t=now*.004; for(const f of _FLICKER){ const n=_noise1(t+f.seed); f.l.intensity=f.base*(.85+.15*n)*(Math.random()<.015?.5:1); } }
-  // rain
-  if(_rain){ const dm=_rain._dm; for(let i=0;i<_rain._N;i++){ const p=_rainP[i]; p.y-=dt*15; if(p.y<.1){p.y=6;p.x=11+Math.random()*26;p.z=-11+Math.random()*22;} dm.position.set(p.x,p.y,p.z); dm.updateMatrix(); _rain.setMatrixAt(i,dm.matrix); } _rain.instanceMatrix.needsUpdate=true; }
+  // rain (only when the run rolled a storm)
+  if(WEATHER==='rain' && _rain && _rain.visible){ const dm=_rain._dm; for(let i=0;i<_rain._N;i++){ const p=_rainP[i]; p.y-=dt*15; if(p.y<.1){p.y=6;p.x=11+Math.random()*26;p.z=-11+Math.random()*22;} dm.position.set(p.x,p.y,p.z); dm.updateMatrix(); _rain.setMatrixAt(i,dm.matrix); } _rain.instanceMatrix.needsUpdate=true; }
+  // drifting clouds (clear nights) + smoke sway (both)
+  for(const c of _clouds){ c.position.x+=dt*(c._sp||.4); if(c.position.x>95)c.position.x=-95; }
+  for(const s of _smoke){ s.rotation.y+=dt*.05; if(s.material)s.material.opacity=.34+Math.sin(now*.0005+s.position.z)*.08; }
   // lightning
   _lightT-=dt;
   if(_lightT<=0){ _flash=.14; _lightLight.intensity=9; _lightT=14+Math.random()*22; try{SFX('thunder');}catch(e){} }
@@ -3060,6 +3126,7 @@ const INTERACTABLES=[
   {type:'buy',x:10,  z:-24,range:2.4,weaponKey:'galil', cost:1200,label:'Galil'},    // lab east wall
   {type:'buy',x:-24, z:-10,range:2.4,weaponKey:'m16',   cost:1200,label:'M16A1'},    // theater south wall
   {type:'buy',x:36,  z:0,  range:2.4,weaponKey:'spas12',cost:1500,label:'SPAS-12'},  // courtyard east wall
+  {type:'buy',x:55,  z:23, range:2.6,weaponKey:'spas12',cost:1750,label:'SPAS-12',fy:4.5}, // bell tower (across the sky bridge)
   // ---- perks (match perkMachine placements) ----
   {type:'perk',x:-9, z:31, range:2.5,perkKey:'juggernog', cost:2500,label:'Juggernog',   desc:'250 max HP'},
   {type:'perk',x:8,  z:-30,range:2.5,perkKey:'speed_cola',cost:2500,label:'Speed Cola',  desc:'2× reload speed'},
@@ -4461,7 +4528,7 @@ function startRound(r){
     dblPtsTimer=performance.now()+600000; // 2x points for the whole round
     flashMsg('🌑 BLOOD MOON — double spawns · 2× points');
     if(bloodMoon) totalThisRound=Math.round(totalThisRound*1.6);
-  } else if(scene.fog){ scene.fog.color.setHex(0x050409); }
+  } else if(scene.fog){ scene.fog.color.setHex(_fogBase); } // weather-driven base fog colour (Part 4)
   updateHUD();
   const maxAlive=boss?Math.min(10+Math.floor(r*.7),22):(bloodMoon?Math.min(32,12+r):Math.min(6+Math.floor(r*.8),24));
   if(spawnIV)clearInterval(spawnIV);
