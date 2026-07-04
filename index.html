@@ -2044,6 +2044,12 @@ function livingAtmosphere(){
     _powerLever=new THREE.Mesh(box(.06,.3,.06),std(0x8a2a2a,.4,.6)); _powerLever.position.set(px+.16,1.35,pz); _powerLever.rotation.z=.6; scene.add(_powerLever);
     _powerLED=new THREE.Mesh(sph(.05,8,6),new THREE.MeshBasicMaterial({color:0xff2200})); _powerLED.position.set(px,1.72,pz-.14); scene.add(_powerLED);
   }
+  // --- hidden gramophones (music easter egg) ---
+  for(const gp of [[-35,-8],[10,32],[36,8]]){
+    const base=new THREE.Mesh(box(.5,.32,.5),std(0x2a1a0c,.6,.1)); base.position.set(gp[0],.62,gp[1]); base.castShadow=true; scene.add(base);
+    const horn=new THREE.Mesh(new THREE.CylinderGeometry(.22,.05,.36,10,1,true),(M.brass||std(0x6a5320,.3,.95))); horn.position.set(gp[0],.98,gp[1]); horn.rotation.z=.7; scene.add(horn);
+    const disc=new THREE.Mesh(cyl(.16,.16,.02,14),std(0x0a0a0a,.4,.2)); disc.position.set(gp[0],.79,gp[1]); scene.add(disc);
+  }
   // --- flicker: register ~half the room lights ---
   for(let i=0;i<ALL_PTL.length;i+=2) _FLICKER.push({l:ALL_PTL[i].l,base:ALL_PTL[i].base,seed:Math.random()*100});
   // --- rain over the courtyard (instanced streaks) ---
@@ -2821,6 +2827,9 @@ const INTERACTABLES=[
   {type:'mystery',x:0,z:28,range:2.4,cost:950,label:'Mystery Box'},
   {type:'pap',x:0,z:-30.4,range:2.6,cost:2500,label:'Pack-a-Punch'},
   {type:'power',x:-10.4,z:-30,range:2.4,cost:1500,label:'Power Switch'},
+  {type:'gramophone',x:-35,z:-8,range:2.2,gid:0,label:'Gramophone'},
+  {type:'gramophone',x:10, z:32,range:2.2,gid:1,label:'Gramophone'},
+  {type:'gramophone',x:36, z:8, range:2.2,gid:2,label:'Gramophone'},
   // ---- teleporter (Lab pad <-> Foyer pad) ----
   {type:'teleport',x:-7,z:-28,range:2.0,tx:8, tz:30, troom:'foyer',label:'Teleporter → Foyer'},
   {type:'teleport',x:8, z:30, range:2.0,tx:-7,tz:-28,troom:'lab',  label:'Teleporter → Lab'},
@@ -3521,6 +3530,26 @@ function doInteract(){
   else if(near.type==='pap') handlePAP(near);
   else if(near.type==='teleport') handleTeleport(near);
   else if(near.type==='power') handlePower(near);
+  else if(near.type==='gramophone') handleGramophone(near);
+}
+
+const _gramo=new Set();
+function handleGramophone(it){
+  if(_gramo.has(it.gid)){ flashMsg('This record is already spinning...'); return; }
+  _gramo.add(it.gid); SFX('mystery');
+  flashMsg(`🎵 Gramophone ${_gramo.size}/3`);
+  if(_gramo.size>=3){ flashMsg('🎵 A hidden song begins...'); playEasterEggMusic(); }
+}
+function playEasterEggMusic(){
+  try{
+    const ac=getAC(), mb=getMB(); const t0=ac.currentTime+0.3, beat=0.34;
+    const mel=[440,523,659,587,523,440,392,440,349,440,523,494,440,392,349,330]; // original A-minor waltz
+    const bass=[220,164.8,196,220];
+    for(let b=0;b<16;b++){
+      mel.forEach((f,i)=>{ const o=ac.createOscillator(),g=ac.createGain(); o.type='triangle'; o.frequency.value=f; const st=t0+(b*mel.length+i)*beat; g.gain.setValueAtTime(0,st); g.gain.linearRampToValueAtTime(.085,st+.03); g.gain.exponentialRampToValueAtTime(.001,st+beat*.9); o.connect(g);g.connect(mb);o.start(st);o.stop(st+beat); });
+      bass.forEach((f,i)=>{ const o=ac.createOscillator(),g=ac.createGain(); o.type='sine'; o.frequency.value=f; const st=t0+(b*mel.length+i*4)*beat; g.gain.setValueAtTime(.07,st); g.gain.exponentialRampToValueAtTime(.001,st+beat*3.4); o.connect(g);g.connect(mb);o.start(st);o.stop(st+beat*4); });
+    }
+  }catch(e){}
 }
 
 function handlePower(it){
@@ -4141,8 +4170,18 @@ function startRound(r){
     announce(`ROUND ${r}`);
     SFX('round_start');
   }
+  // Phase 7: BLOOD MOON every 10th round — fog surge, double spawns, 2x points
+  const bloodMoon = (r>0 && r%10===0);
+  if(bloodMoon){
+    announce(`🌑 BLOOD MOON 🌑\nROUND ${r}`);
+    try{ SFX('boss_siren'); }catch(e){}
+    if(scene.fog){ scene.fog.color.setHex(0x1a0206); scene.fog.near=4; scene.fog.far=20; }
+    dblPtsTimer=performance.now()+600000; // 2x points for the whole round
+    flashMsg('🌑 BLOOD MOON — double spawns · 2× points');
+    if(bloodMoon) totalThisRound=Math.round(totalThisRound*1.6);
+  } else if(scene.fog){ scene.fog.color.setHex(0x050409); }
   updateHUD();
-  const maxAlive=boss?Math.min(10+Math.floor(r*.7),22):Math.min(6+Math.floor(r*.8),24);
+  const maxAlive=boss?Math.min(10+Math.floor(r*.7),22):(bloodMoon?Math.min(32,12+r):Math.min(6+Math.floor(r*.8),24));
   if(spawnIV)clearInterval(spawnIV);
   spawnIV=setInterval(()=>{
     if(!roundActive){clearInterval(spawnIV);return;}
@@ -4150,9 +4189,9 @@ function startRound(r){
     const rem=totalThisRound-spawned;
     if(rem<=0){clearInterval(spawnIV);return;}
     if(alive>=maxAlive)return;
-    const n=Math.min(boss?1:3,rem,maxAlive-alive);
+    const n=Math.min(boss?1:(bloodMoon?5:3),rem,maxAlive-alive);
     for(let i=0;i<n;i++)spawnZ(r,boss&&spawned===0&&i===0);
-  },boss?1600:1800);
+  },boss?1600:(bloodMoon?850:1800));
 }
 
 function spawnZ(r,isBoss=false){
@@ -4323,6 +4362,7 @@ const GRAV=-22;
 let bobT=0;
 PL._phdReady=false;
 let wasInAir=false;
+let _wasProne=false,_diving=false; // Phase 7: dolphin dive
 let heartbeatT=0,ambBreathT=14+Math.random()*10,distScreamT=55+Math.random()*50;
 
 let FPS=60,_fpsAcc=0,_fpsN=0;
@@ -4364,6 +4404,13 @@ function loop(){
   mouseDX=0;mouseDY=0;
   PL.crouching=!!K["KeyC"];PL.prone=!!K["KeyZ"]&&!PL.crouching;
   PL.sprinting=!!K["ShiftLeft"]&&!PL.crouching&&!PL.prone;
+  // Phase 7: DOLPHIN DIVE — sprint (Shift) + prone (Z) launches a forward lunge; PhD explodes on landing
+  if(PL.prone && !_wasProne && K["ShiftLeft"] && PL.onGround){
+    PL.vel.y=5.4; PL.onGround=false; wasInAir=true; _diving=true;
+    PL.pos.x+=(-Math.sin(PL.yaw))*0.9; PL.pos.z+=(-Math.cos(PL.yaw))*0.9;
+    try{SFX('knife');}catch(e){} if(typeof shakeCam==='function')shakeCam(.1);
+  }
+  _wasProne=PL.prone;
   const fwd=new THREE.Vector3(-Math.sin(PL.yaw),0,-Math.cos(PL.yaw));
   const rgt=new THREE.Vector3(Math.cos(PL.yaw),0,-Math.sin(PL.yaw));
   const mov=new THREE.Vector3();
@@ -4382,7 +4429,7 @@ function loop(){
       spawnShockwave();
       for(const z of ZOMBIES){if(!z.dead&&Math.hypot(z.pos.x-PL.pos.x,z.pos.z-PL.pos.z)<4)z.hurt(400,false);}
     }
-    PL.pos.y=floorH;PL.vel.y=0;PL.onGround=true;wasInAir=false;
+    PL.pos.y=floorH;PL.vel.y=0;PL.onGround=true;wasInAir=false;_diving=false;
   }
   const moving=mov.length()>0&&PL.onGround;
   if(moving)bobT+=dt*spd*1.8;
