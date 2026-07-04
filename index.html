@@ -880,16 +880,18 @@ function phase1Assets(){
 
   // --- Real PBR texture sets onto the map materials (keeps procedural as fallback) ---
   const texLoader=new THREE.TextureLoader();
-  function pbr(dir,mat,rep){
+  function pbr(dir,mat,rep,tint,env){
     if(!mat) return;
+    mat.envMapIntensity = (env==null? 0.3 : env);   // was full-strength -> blew out glossy floors
+    const albedoTint = (tint==null? 0x8a857c : tint); // grounded grey, not near-white
     const cfg=(t,srgb)=>{t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rep,rep);t.anisotropy=4;if(srgb)t.encoding=THREE.sRGBEncoding;};
     _assetsTotal+=3;
     const ok=()=>{_assetsLoaded++;};
-    texLoader.load('assets/textures/'+dir+'/albedo.jpg',t=>{cfg(t,true);mat.map=t;mat.color.setHex(0xf2ede6);mat.needsUpdate=true;ok();},undefined,ok);
+    texLoader.load('assets/textures/'+dir+'/albedo.jpg',t=>{cfg(t,true);mat.map=t;mat.color.setHex(albedoTint);mat.needsUpdate=true;ok();},undefined,ok);
     texLoader.load('assets/textures/'+dir+'/normal.jpg',t=>{cfg(t,false);mat.normalMap=t;mat.normalScale=new THREE.Vector2(1,1);mat.needsUpdate=true;ok();},undefined,ok);
     texLoader.load('assets/textures/'+dir+'/rough.jpg',t=>{cfg(t,false);mat.roughnessMap=t;mat.roughness=1.0;mat.needsUpdate=true;ok();},undefined,ok);
   }
-  pbr('marble',  M.floor, 6);
+  pbr('marble',  M.floor, 6, 0x6b665f, 0.14); // floor: darker + minimal reflection (was blown white)
   pbr('plaster', M.wall,  4);
   pbr('brick',   M.wall2, 4);
   pbr('concrete',M.wall3, 4);
@@ -962,11 +964,9 @@ function ptL(x,y,z,col,i,d,shadow){
   if(shadow){l.castShadow=true;l.shadow.mapSize.set(1024,1024);l.shadow.bias=-0.0006;l.shadow.camera.far=d;}
   scene.add(l);return l;
 }
-// Fewer, stronger lights = far cheaper forward shading. Pools of warm light in the dark.
-ptL(0,4.2,2,0xffab5a,3.4,30);        // main auditorium
-ptL(0,4.2,-20,0xff5030,2.4,24);      // stage footlight wash
-ptL(0,4,18,0xffbe78,2.2,24);         // foyer
-ptL(0,3.6,-30,0x7a5aff,1.5,20);      // backstage
+// NOTE: per-room point lights are created by buildMapNew(). The old global
+// room-lights were REMOVED here — they doubled up with the new ones and blew
+// out the floors. Only sun + ambient + hemisphere remain (set above).
 
 // ---- Materials ----
 function phong(col,spec=0x222222,shin=20,emissive=0){
