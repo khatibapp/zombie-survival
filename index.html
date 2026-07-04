@@ -1923,27 +1923,62 @@ function buildMapNew(){
     for(let i=0;i<8;i++){const a=i/8*Math.PI*2;const fl=new THREE.Mesh(sph(.03,6,5),flameMat);fl.scale.y=1.7;fl.position.set(x+Math.cos(a)*.32,H-.28,z+Math.sin(a)*.32);scene.add(fl);}
     const gl=new THREE.Mesh(sph(.5,8,6),new THREE.MeshBasicMaterial({color:0xffcf9a,transparent:true,opacity:.05,blending:THREE.AdditiveBlending,depthWrite:false}));gl.position.set(x,H-.35,z);scene.add(gl);
   }
-  function perkMachine(x,z,col,label,icon){
-    const dark=std(0x0e0e12,0.6,0.3), accm=new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:.9,roughness:.4,metalness:.3});
-    mesh(box(.9,2.1,.85),dark,x,1.05,z); addCol(COLS,x,z,.55,.55);
-    mesh(box(.05,2.0,.8),accm,x-.46,1.05,z); mesh(box(.05,2.0,.8),accm,x+.46,1.05,z);
-    mesh(box(.95,.28,.9),accm,x,2.28,z);
+  // Original stylized ability icons drawn on the machine screen (128x96 canvas)
+  function drawPerkIcon(g,type){
+    g.save();g.translate(64,46);g.lineJoin='round';g.lineCap='round';g.strokeStyle='#fff';g.fillStyle='#fff';
+    if(type==='jug'){ // shield + cross (toughness)
+      g.lineWidth=5;g.beginPath();g.moveTo(0,-27);g.lineTo(23,-17);g.lineTo(23,5);g.quadraticCurveTo(23,25,0,33);g.quadraticCurveTo(-23,25,-23,5);g.lineTo(-23,-17);g.closePath();g.stroke();
+      g.lineWidth=7;g.beginPath();g.moveTo(0,-12);g.lineTo(0,17);g.moveTo(-11,3);g.lineTo(11,3);g.stroke();
+    } else if(type==='speed'){ // hand gripping a magazine + speed lines
+      g.fillRect(-7,-26,14,28);g.fillStyle='#111';for(let i=0;i<4;i++)g.fillRect(-7,-22+i*7,14,3);g.fillStyle='#fff';
+      g.fillRect(-16,4,28,15);for(let i=0;i<4;i++)g.fillRect(-14+i*7,-2,5,9);
+      g.lineWidth=4;g.beginPath();g.moveTo(-32,-16);g.lineTo(-19,-16);g.moveTo(-32,-6);g.lineTo(-21,-6);g.moveTo(-32,4);g.lineTo(-23,4);g.stroke();
+    } else if(type==='dead'){ // crosshair
+      g.lineWidth=5;g.beginPath();g.arc(0,0,23,0,7);g.stroke();g.beginPath();g.arc(0,0,10,0,7);g.stroke();
+      g.beginPath();g.moveTo(0,-31);g.lineTo(0,-14);g.moveTo(0,14);g.lineTo(0,31);g.moveTo(-31,0);g.lineTo(-14,0);g.moveTo(14,0);g.lineTo(31,0);g.stroke();
+      g.beginPath();g.arc(0,0,3.5,0,7);g.fill();
+    } else if(type==='dtap'){ // two bullets
+      for(const bx of [-12,12]){g.beginPath();g.moveTo(bx,-25);g.quadraticCurveTo(bx-8,-25,bx-8,-14);g.lineTo(bx-8,19);g.lineTo(bx+8,19);g.lineTo(bx+8,-14);g.quadraticCurveTo(bx+8,-25,bx,-25);g.fill();g.fillStyle='#111';g.fillRect(bx-8,3,16,3);g.fillStyle='#fff';}
+    } else if(type==='mule'){ // boot
+      g.beginPath();g.moveTo(-13,-25);g.lineTo(-1,-25);g.lineTo(-1,9);g.lineTo(21,9);g.lineTo(21,24);g.lineTo(-17,24);g.quadraticCurveTo(-21,24,-20,13);g.closePath();g.fill();
+    } else if(type==='stam'){ // running figure + motion lines
+      g.lineWidth=6;g.beginPath();g.arc(5,-22,6,0,7);g.stroke();
+      g.beginPath();g.moveTo(3,-14);g.lineTo(-3,3);g.moveTo(-3,3);g.lineTo(-15,9);g.moveTo(-3,3);g.lineTo(11,-4);g.moveTo(-3,3);g.lineTo(-11,23);g.moveTo(-3,3);g.lineTo(15,19);g.stroke();
+      g.lineWidth=4;g.beginPath();g.moveTo(-32,-12);g.lineTo(-17,-12);g.moveTo(-32,-2);g.lineTo(-19,-2);g.moveTo(-32,8);g.lineTo(-21,8);g.stroke();
+    } else if(type==='phd'){ // explosion burst
+      g.beginPath();for(let i=0;i<14;i++){const a=i/14*Math.PI*2;const r=(i%2?12:29);g.lineTo(Math.cos(a)*r,Math.sin(a)*r);}g.closePath();g.fill();
+      g.fillStyle='#111';g.beginPath();g.arc(0,0,7,0,7);g.fill();
+    } else { g.font='bold 46px serif';g.textAlign='center';g.textBaseline='middle';g.fillText('?',0,0); }
+    g.restore();
+  }
+  function perkMachine(x,z,col,label,type){
+    const dark=std(0x0e0e12,0.55,0.35), accm=new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:1.0,roughness:.4,metalness:.3});
+    const metalM=std(0x2a2c30,0.4,0.8), blackM=std(0x050506,0.6,0.3);
+    mesh(box(.92,2.0,.85),dark,x,1.0,z); addCol(COLS,x,z,.56,.55);
+    mesh(box(.82,1.9,.05),blackM,x,1.05,z-.42);            // front recess
+    mesh(box(1.0,.3,.95),accm,x,2.1,z);                    // header/awning
+    mesh(box(.06,1.9,.07),accm,x-.47,1.0,z-.4); mesh(box(.06,1.9,.07),accm,x+.47,1.0,z-.4); // side neon
+    mesh(box(.52,.14,.12),blackM,x,.34,z-.42); mesh(box(.52,.02,.12),accm,x,.28,z-.43);     // dispenser slot
+    // screen with the unique ability icon
     const sc=document.createElement('canvas');sc.width=128;sc.height=96;const sx=sc.getContext('2d');
     const hex='#'+col.toString(16).padStart(6,'0');
-    const gr=sx.createRadialGradient(64,48,4,64,48,60);gr.addColorStop(0,hex);gr.addColorStop(1,'#000');sx.fillStyle=gr;sx.fillRect(0,0,128,96);
-    sx.font='bold 46px serif';sx.textAlign='center';sx.textBaseline='middle';sx.fillStyle='#fff';sx.fillText(icon||'?',64,48);
+    const gr=sx.createRadialGradient(64,46,4,64,46,66);gr.addColorStop(0,hex);gr.addColorStop(1,'#050505');sx.fillStyle=gr;sx.fillRect(0,0,128,96);
+    drawPerkIcon(sx,type);
     const tex=new THREE.CanvasTexture(sc);tex.encoding=THREE.sRGBEncoding;
-    mesh(box(.72,.55,.05),new THREE.MeshStandardMaterial({map:tex,emissiveMap:tex,emissive:new THREE.Color(col),emissiveIntensity:1.0,roughness:.5}),x,1.55,z-.44);
-    const fg=new THREE.Mesh(new THREE.CircleGeometry(.95,20),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.22,side:THREE.DoubleSide}));fg.rotation.x=-Math.PI/2;fg.position.set(x,.02,z);scene.add(fg);
-    ptL(x,1.9,z,col,1.0,6);
-    const orb=new THREE.Mesh(sph(.22,12,10),accm);orb.position.set(x,2.75,z);scene.add(orb);
-    const og=new THREE.Mesh(sph(.3,12,10),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.3}));og.position.set(x,2.75,z);scene.add(og);
-    PERK_ORBS.push({orb,orbGlow:og,baseY:2.75,x,z,col,t:Math.random()*Math.PI*2});
+    mesh(box(.62,.72,.05),new THREE.MeshStandardMaterial({map:tex,emissiveMap:tex,emissive:new THREE.Color(col),emissiveIntensity:1.1,roughness:.5}),x,1.35,z-.44);
+    // glowing "bottle" emblem on top
+    const bottle=new THREE.Mesh(cyl(.09,.11,.34,12),accm);bottle.position.set(x,2.42,z);scene.add(bottle);
+    const cap=new THREE.Mesh(cyl(.06,.06,.08,12),metalM);cap.position.set(x,2.63,z);scene.add(cap);
+    const fg=new THREE.Mesh(new THREE.CircleGeometry(.95,20),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.24,side:THREE.DoubleSide}));fg.rotation.x=-Math.PI/2;fg.position.set(x,.02,z);scene.add(fg);
+    ptL(x,1.7,z-.3,col,1.2,7);
+    const orb=new THREE.Mesh(sph(.16,12,10),accm);orb.position.set(x,3.0,z);scene.add(orb);
+    const og=new THREE.Mesh(sph(.24,12,10),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.3}));og.position.set(x,3.0,z);scene.add(og);
+    PERK_ORBS.push({orb,orbGlow:og,baseY:3.0,x,z,col,t:Math.random()*Math.PI*2});
     const lc=document.createElement('canvas');lc.width=192;lc.height=40;const lx=lc.getContext('2d');
     lx.fillStyle='rgba(0,0,0,.85)';lx.fillRect(0,0,192,40);lx.strokeStyle=hex;lx.lineWidth=2;lx.strokeRect(1,1,190,38);
     lx.fillStyle='#fff';lx.font='bold 15px Arial';lx.textAlign='center';lx.textBaseline='middle';lx.fillText(label,96,20);
     const lt=new THREE.CanvasTexture(lc);lt.encoding=THREE.sRGBEncoding;
-    mesh(box(1.1,.23,.02),new THREE.MeshStandardMaterial({map:lt,emissiveMap:lt,emissive:new THREE.Color(col),emissiveIntensity:.5,transparent:true}),x,3.15,z-.42);
+    mesh(box(1.1,.23,.02),new THREE.MeshStandardMaterial({map:lt,emissiveMap:lt,emissive:new THREE.Color(col),emissiveIntensity:.5,transparent:true}),x,3.35,z-.42);
   }
   function buySign(x,y,z,face,name,cost,accent){
     const c=document.createElement('canvas');c.width=512;c.height=256;const ctx=c.getContext('2d');
@@ -1990,8 +2025,8 @@ function buildMapNew(){
     ptL(x,2,z,0x3388ff,1.4,8);
   }
   teleporterPad(-7,-28,0x66ccff);
-  perkMachine(8,-30,0x1111dd,'Speed Cola','⚡');
-  perkMachine(-9,-14,0xddaa11,'Deadshot','🎯');
+  perkMachine(8,-30,0x1111dd,'Speed Cola','speed');
+  perkMachine(-9,-14,0xddaa11,'Deadshot','dead');
   buySign(10.7,1.25,-24,'x-','Galil',1200,'#8a9a4a');
   for(const rx of [-9,9]){mesh(box(1.4,2.2,.7),std(0x1a1e22,.5,.6),rx,1.1,-20);const l=new THREE.Mesh(sph(.05,6,5),new THREE.MeshBasicMaterial({color:0x33ff88}));l.position.set(rx+(rx<0?.65:-.65),1.8,-20);scene.add(l);addCol(COLS,rx,-20,.8,.45);}
 
@@ -1999,7 +2034,7 @@ function buildMapNew(){
   flr(0,22,22,22,M.floor); cei(0,22,22,22);
   wseg('x',33,-11,11,M.wall); wseg('z',-11,11,33,M.wall); wseg('z',11,11,33,M.wall);
   chandelier(0,22); ptL(0,4,22,0xffc488,2.2,26);
-  perkMachine(-9,31,0xdd1111,'Juggernog','🍺');
+  perkMachine(-9,31,0xdd1111,'Juggernog','jug');
   teleporterPad(8,30,0xffaa66);
   buySign(-10.7,1.25,18,'x+','MP5',800,'#44ff88');
   mesh(box(3,.02,20),M.velvet,0,.02,22);
@@ -2013,16 +2048,16 @@ function buildMapNew(){
   for(const pz of [-7.5,7.5]){mesh(cyl(.34,.4,H,12),M.gilt,-30,H/2,pz);addCol(COLS,-30,pz,.45,.45);}
   mesh(box(.5,.6,16),M.gilt,-30,H-.2,0);
   for(let s=0;s<6;s++){mesh(box(.7,.5,.7),M.velvet,-18,.25,-6+s*2.4);mesh(box(.7,.5,.7),M.velvet,-20,.25,-6+s*2.4);}
-  perkMachine(-14,-9,0xdd7700,'Double Tap','🔫');
-  perkMachine(-14,9,0x33bb33,'Mule Kick','🎒');
+  perkMachine(-14,-9,0xdd7700,'Double Tap','dtap');
+  perkMachine(-14,9,0x33bb33,'Mule Kick','mule');
   buySign(-24,1.25,-10.7,'z+','M16A1',1200,'#4488ff');
 
   // ===== COURTYARD (east) x11..37 z-11..11 =====
   flr(24,0,26,22,std(0x1a1814,.9,.05)); cei(24,0,26,22,std(0x05060a,.95,0));
   wseg('z',37,-11,11,M.wall); wseg('x',11,11,37,M.wall); wseg('x',-11,11,37,M.wall);
   ptL(24,4,0,0x8899cc,1.9,28);
-  perkMachine(14,-9,0x11dd11,'Stamin-Up','💟');
-  perkMachine(34,-8,0xdd11aa,'PhD Flopper','💥');
+  perkMachine(14,-9,0x11dd11,'Stamin-Up','stam');
+  perkMachine(34,-8,0xdd11aa,'PhD Flopper','phd');
   buySign(36.7,1.25,0,'x-','SPAS-12',1500,'#ff6644');
   pillar(20,-6);pillar(30,6);pillar(24,-8); crate(20,7);crate(32,-7);crate(31,6);
 }
@@ -2553,13 +2588,19 @@ let knifeMesh=null;
 let reloadAnimT=-1; // -1 = idle, 0-1 = animating
 let reloadAnimDur=1000; // ms, set per weapon
 
+// Cache built gun meshes — building a detailed gun (30-40 meshes + shader compile)
+// on every switch/buy/box-pull caused the "hiccup around guns". Build once, reuse.
+const _gunMeshCache={};
 function rebuildGunMesh(){
   if(currentGunMesh) gunGroup.remove(currentGunMesh);
-  currentGunMesh=buildGunMesh(PL.w.key,PL.w.pap||false);
+  const cacheKey=PL.w.key+(PL.w.pap?'_pap':'');
+  let m=_gunMeshCache[cacheKey];
+  if(!m){ m=buildGunMesh(PL.w.key,PL.w.pap||false); _gunMeshCache[cacheKey]=m; }
+  currentGunMesh=m;
   currentGunMesh.position.set(.2,-.18,-.1);
+  currentGunMesh.rotation.set(0,0,0);
   gunGroup.add(currentGunMesh);
   mfMesh.position.set(.2,-.14,-.7);
-  // PAP muzzle flash color
   mfMat.color.setHex(PL.w.pap?0xff1100:0xffee44);
 }
 
