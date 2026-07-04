@@ -4255,17 +4255,17 @@ class Zombie{
     this.torso.position.y=.82+Math.abs(ws)*.045;
     if(dist>0.88 || Math.abs((this.pos.y||0)-ppos.y)>2.2){ // move unless adjacent AND on the same floor
       const step=this.spd*dt;
-      // Line-of-sight shortcut (throttled) — beeline straight at the player in open rooms
-      if(now>(this._losT||0)){ this._losT=now+170+Math.random()*90; this._hasLOS=navLOS(this.pos.x,this.pos.z,ppos.x,ppos.z); }
+      // Line-of-sight shortcut (throttled) — beeline in open rooms, but ONLY when on the SAME floor as the player
+      if(now>(this._losT||0)){ this._losT=now+170+Math.random()*90; this._hasLOS=(Math.abs((this.pos.y||0)-ppos.y)<2.2)&&navLOS(this.pos.x,this.pos.z,ppos.x,ppos.z); }
       let tx,tz;
       if(this._hasLOS){ tx=ppos.x; tz=ppos.z; }
       else {
-        // A* repath when: no path, path consumed, goal moved >3m, or timer — budgeted across frames
+        // A* repath (multi-floor) when: no path, path consumed, goal moved >3m, or timer — budgeted across frames
         const needRepath = !this.path || this.pathI>=this.path.length || Math.hypot(ppos.x-(this._goalX||0),ppos.z-(this._goalZ||0))>3 || now>(this._repathT||0);
-        if(needRepath && _repathBudget>0){ _repathBudget--; this.path=navFindPath(this.pos.x,this.pos.z,ppos.x,ppos.z); this.pathI=0; this._goalX=ppos.x; this._goalZ=ppos.z; this._repathT=now+800+Math.random()*400;
-          if(!this.path && now>(this._warnT||0)){ this._warnT=now+3000; console.warn('[nav] pathless zombie @',this.pos.x.toFixed(1),this.pos.z.toFixed(1)); } }
+        if(needRepath && _repathBudget>0){ _repathBudget--; this.path=navFindPath3(this.pos.x,this.pos.z,this.pos.y||0, ppos.x,ppos.z,ppos.y); this.pathI=0; this._goalX=ppos.x; this._goalZ=ppos.z; this._repathT=now+800+Math.random()*400;
+          if(!this.path && now>(this._warnT||0)){ this._warnT=now+3000; console.warn('[nav] pathless zombie @',this.pos.x.toFixed(1),this.pos.z.toFixed(1),'y',(this.pos.y||0).toFixed(1)); } }
         if(this.path && this.pathI<this.path.length){ const wp=this.path[this.pathI]; if(Math.hypot(wp.x-this.pos.x,wp.z-this.pos.z)<0.6)this.pathI++; const w2=this.path[Math.min(this.pathI,this.path.length-1)]; tx=w2.x; tz=w2.z; }
-        else { tx=ppos.x; tz=ppos.z; }
+        else { tx=this.pos.x; tz=this.pos.z; } // no path -> hold & retry next budget (NO cross-floor direct-steer fallback)
       }
       // steer toward the target waypoint, per-axis collision safety (NO teleport)
       const mdx=tx-this.pos.x, mdz=tz-this.pos.z, ml=Math.hypot(mdx,mdz)||1;
@@ -4879,61 +4879,92 @@ loop();
 // ===================== A* NAVIGATION (auto-baked from collider data) =====================
 const NAV={ready:false,debug:false};
 let _repathBudget=5;
+const NAV_FYS=[0,-4.5,4.5];                       // layer index -> floor height (ground, basement, upper)
+const NAV_LCOL=[0x00ff88,0xff8a3a,0x66aaff];      // debug colours per layer
+function navLayerOf(y){ let bi=0,bd=1e9; for(let i=0;i<NAV_FYS.length;i++){const d=Math.abs(NAV_FYS[i]-(y||0)); if(d<bd){bd=d;bi=i;}} return bi; }
+// Part 3: LAYERED nav graph — one walkability grid per floor, joined by vertical portal edges at
+// every ramp/stair/ladder (bidirectional) and the Catwalk drop-through (one-way). A* runs over the union.
 function bakeNavGrid(){
   let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
   for(const r of Object.values(ROOMS)){ minX=Math.min(minX,r.x0);maxX=Math.max(maxX,r.x1);minZ=Math.min(minZ,r.z0);maxZ=Math.max(maxZ,r.z1); }
   const pad=1.5; minX-=pad;maxX+=pad;minZ-=pad;maxZ+=pad;
-  const cell=0.6, cols=Math.ceil((maxX-minX)/cell), rows=Math.ceil((maxZ-minZ)/cell);
-  const walk=new Uint8Array(cols*rows), door=new Int16Array(cols*rows), R=0.34;
-  const inRooms=(x,z)=>{ for(const r of Object.values(ROOMS)){ if(Math.abs(r.fy||0)>1)continue; if(x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1)return true; } return false; }; // ground floor only
-  for(let ri=0;ri<rows;ri++)for(let ci=0;ci<cols;ci++){
-    const x=minX+(ci+0.5)*cell, z=minZ+(ri+0.5)*cell;
-    walk[ri*cols+ci]=(inRooms(x,z)&&!hitCol(COLS,x,z,R,0))?1:0; // ground-floor colliders only
-  }
-  for(let di=0;di<DOOR_LIST.length;di++){
-    const c=DOOR_LIST[di].col; if(!c)continue;
+  const cell=0.6, cols=Math.ceil((maxX-minX)/cell), rows=Math.ceil((maxZ-minZ)/cell), cs=cols*rows, NL=NAV_FYS.length, R=0.34;
+  const walk=new Uint8Array(NL*cs), door=new Int16Array(NL*cs);
+  const inRoomsFy=(x,z,fy)=>{ for(const r of Object.values(ROOMS)){ if(Math.abs((r.fy||0)-fy)>1.6)continue; if(x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1)return true; } return false; };
+  for(let li=0;li<NL;li++){ const fy=NAV_FYS[li];
+    for(let ri=0;ri<rows;ri++)for(let ci=0;ci<cols;ci++){ const x=minX+(ci+0.5)*cell, z=minZ+(ri+0.5)*cell;
+      walk[li*cs+ri*cols+ci]=(inRoomsFy(x,z,fy)&&!hitCol(COLS,x,z,R,fy))?1:0; } }
+  for(let di=0;di<DOOR_LIST.length;di++){ const c=DOOR_LIST[di].col; if(!c)continue; const li=navLayerOf(c.fy||0), fy=NAV_FYS[li];
     const ci0=Math.max(0,Math.floor((c.min.x-R-minX)/cell)), ci1=Math.min(cols-1,Math.floor((c.max.x+R-minX)/cell));
     const ri0=Math.max(0,Math.floor((c.min.z-R-minZ)/cell)), ri1=Math.min(rows-1,Math.floor((c.max.z+R-minZ)/cell));
-    for(let ri=ri0;ri<=ri1;ri++)for(let ci=ci0;ci<=ci1;ci++){ const x=minX+(ci+0.5)*cell,z=minZ+(ri+0.5)*cell; if(inRooms(x,z)){ walk[ri*cols+ci]=1; door[ri*cols+ci]=di+1; } }
+    for(let ri=ri0;ri<=ri1;ri++)for(let ci=ci0;ci<=ci1;ci++){ const x=minX+(ci+0.5)*cell,z=minZ+(ri+0.5)*cell; if(inRoomsFy(x,z,fy)){ walk[li*cs+ri*cols+ci]=1; door[li*cs+ri*cols+ci]=di+1; } }
   }
-  Object.assign(NAV,{minX,minZ,cell,cols,rows,walk,door,ready:true,g:new Float32Array(cols*rows),f:new Float32Array(cols*rows),came:new Int32Array(cols*rows),ver:new Int32Array(cols*rows),verN:0});
-  console.log('[nav] baked '+cols+'x'+rows+' walkability grid');
+  // vertical portal edges
+  const vlink=new Map(); const addLink=(a,b,two)=>{ if(a<0||b<0||a===b)return; if(!vlink.has(a))vlink.set(a,[]); if(vlink.get(a).indexOf(b)<0)vlink.get(a).push(b); if(two){ if(!vlink.has(b))vlink.set(b,[]); if(vlink.get(b).indexOf(a)<0)vlink.get(b).push(a);} };
+  const giAt=(x,z,fy)=>{ const li=navLayerOf(fy),ci=Math.floor((x-minX)/cell),ri=Math.floor((z-minZ)/cell); if(ci<0||ri<0||ci>=cols||ri>=rows)return -1; return li*cs+ri*cols+ci; };
+  // Each ramp becomes a SOLID 2-layer bridge: its whole footprint is forced walkable on BOTH connected
+  // layers and linked cell-by-cell, so the stair connects to the rooms at either end regardless of props.
+  for(const rp of HZ_RAMP){ const la=navLayerOf(rp.y0), lb=navLayerOf(rp.y1); if(la===lb)continue;
+    const ci0=Math.max(0,Math.floor((rp.x0-minX)/cell)), ci1=Math.min(cols-1,Math.floor((rp.x1-minX)/cell));
+    const ri0=Math.max(0,Math.floor((rp.z0-minZ)/cell)), ri1=Math.min(rows-1,Math.floor((rp.z1-minZ)/cell));
+    for(let ri=ri0;ri<=ri1;ri++)for(let ci=ci0;ci<=ci1;ci++){ const k=ri*cols+ci; walk[la*cs+k]=1; walk[lb*cs+k]=1; addLink(la*cs+k, lb*cs+k, true); }
+  }
+  for(let x=-10;x<=10;x+=cell) for(let z=-32;z<=-28.5;z+=cell){ addLink(giAt(x,z,4.5), giAt(x,z,0), false); } // Catwalk drop-through (1-way DOWN)
+  Object.assign(NAV,{minX,minZ,cell,cols,rows,cs,NL,walk,door,vlink,ready:true,g:new Float32Array(NL*cs),f:new Float32Array(NL*cs),came:new Int32Array(NL*cs),ver:new Int32Array(NL*cs),cl:new Int32Array(NL*cs),verN:0});
+  console.log('[nav] baked layered grid '+NL+'x'+cols+'x'+rows+', '+vlink.size+' portal nodes');
 }
-function navPassable(i){ if(!NAV.walk[i])return false; const d=NAV.door[i]; return d===0||(DOOR_LIST[d-1]&&DOOR_LIST[d-1].open); }
-function navCell(x,z){ const ci=Math.floor((x-NAV.minX)/NAV.cell), ri=Math.floor((z-NAV.minZ)/NAV.cell); return (ci<0||ri<0||ci>=NAV.cols||ri>=NAV.rows)?-1:ri*NAV.cols+ci; }
-function navNearest(x,z){ let i=navCell(x,z); if(i>=0&&navPassable(i))return i; const c0=Math.floor((x-NAV.minX)/NAV.cell),r0=Math.floor((z-NAV.minZ)/NAV.cell);
-  for(let r=1;r<9;r++)for(let dr=-r;dr<=r;dr++)for(let dc=-r;dc<=r;dc++){ if(Math.abs(dr)!==r&&Math.abs(dc)!==r)continue; const ci=c0+dc,ri=r0+dr; if(ci<0||ri<0||ci>=NAV.cols||ri>=NAV.rows)continue; const k=ri*NAV.cols+ci; if(navPassable(k))return k; } return -1; }
-function navFindPath(sx,sz,gx,gz){
+function navPassable(gi){ if(gi<0||!NAV.walk[gi])return false; const d=NAV.door[gi]; return d===0||(DOOR_LIST[d-1]&&DOOR_LIST[d-1].open); }
+function navNearest3(x,z,li){ const {cols,rows,cell,minX,minZ,cs}=NAV; const c0=Math.floor((x-minX)/cell),r0=Math.floor((z-minZ)/cell);
+  const at=(ci,ri)=>{ if(ci<0||ri<0||ci>=cols||ri>=rows)return -1; const gi=li*cs+ri*cols+ci; return navPassable(gi)?gi:-1; };
+  let g=at(c0,r0); if(g>=0)return g;
+  for(let r=1;r<11;r++)for(let dr=-r;dr<=r;dr++)for(let dc=-r;dc<=r;dc++){ if(Math.abs(dr)!==r&&Math.abs(dc)!==r)continue; g=at(c0+dc,r0+dr); if(g>=0)return g; } return -1; }
+// multi-floor A*: start/goal use the caller's Y to pick the layer; returns {x,z} waypoints (y follows getFloorH)
+function navFindPath3(sx,sz,sy,gx,gz,gy){
   if(!NAV.ready)return null;
-  const s=navNearest(sx,sz), goal=navNearest(gx,gz); if(s<0||goal<0)return null;
-  const {cols,rows,cell,minX,minZ,g:g_,f:f_,came,ver}=NAV; const V=++NAV.verN;
-  const gr=(goal/cols)|0, gc=goal%cols, H=(i)=>{const r=(i/cols)|0,c=i%cols,dc=Math.abs(c-gc),dr=Math.abs(r-gr);return (dc+dr)-0.586*Math.min(dc,dr);};
+  const s=navNearest3(sx,sz,navLayerOf(sy)), goal=navNearest3(gx,gz,navLayerOf(gy)); if(s<0||goal<0)return null;
+  const {cols,rows,cell,minX,minZ,cs,vlink,g:g_,f:f_,came,ver,cl:closedSet}=NAV; const V=++NAV.verN;
+  const grL=(goal/cs)|0, gk=goal%cs, gr=(gk/cols)|0, gc=gk%cols;
+  const H=(gi)=>{ const li=(gi/cs)|0,k=gi%cs,r=(k/cols)|0,c=k%cols,dc=Math.abs(c-gc),dr=Math.abs(r-gr); return (dc+dr)-0.586*Math.min(dc,dr)+(li!==grL?5:0); };
   const heap=[]; const push=(i)=>{heap.push(i);let c=heap.length-1;while(c>0){const p=(c-1)>>1;if(f_[heap[p]]<=f_[heap[c]])break;const t=heap[p];heap[p]=heap[c];heap[c]=t;c=p;}};
   const pop=()=>{const top=heap[0],last=heap.pop();if(heap.length){heap[0]=last;let c=0;for(;;){let l=2*c+1,r=2*c+2,m=c;if(l<heap.length&&f_[heap[l]]<f_[heap[m]])m=l;if(r<heap.length&&f_[heap[r]]<f_[heap[m]])m=r;if(m===c)break;const t=heap[m];heap[m]=heap[c];heap[c]=t;c=m;}}return top;};
   ver[s]=V;g_[s]=0;f_[s]=H(s);came[s]=-1;push(s); let found=false,ex=0;
-  while(heap.length){ const cur=pop(); if(cur===goal){found=true;break;} if(++ex>5000)break; const cr=(cur/cols)|0,cc=cur%cols;
-    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){ if(!dr&&!dc)continue; const nc=cc+dc,nr=cr+dr; if(nc<0||nr<0||nc>=cols||nr>=rows)continue; const ni=nr*cols+nc; if(!navPassable(ni))continue;
-      if(dr&&dc&&(!navPassable(cr*cols+nc)||!navPassable(nr*cols+cc)))continue; const ng=g_[cur]+((dr&&dc)?1.414:1);
-      if(ver[ni]!==V||ng<g_[ni]){ver[ni]=V;g_[ni]=ng;f_[ni]=ng+H(ni);came[ni]=cur;push(ni);} } }
+  while(heap.length){ const cur=pop(); if(closedSet[cur]===V)continue; closedSet[cur]=V; if(cur===goal){found=true;break;} if(++ex>NAV.NL*NAV.cs)break; // closed-set: expand each node once (ex counts unique expansions)
+    const cl=(cur/cs)|0, ck=cur%cs, cr=(ck/cols)|0, cc=ck%cols; const base=cl*cs;
+    for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){ if(!dr&&!dc)continue; const nc=cc+dc,nr=cr+dr; if(nc<0||nr<0||nc>=cols||nr>=rows)continue; const ni=base+nr*cols+nc; if(!navPassable(ni))continue;
+      if(dr&&dc&&(!navPassable(base+cr*cols+nc)||!navPassable(base+nr*cols+cc)))continue; const ng=g_[cur]+((dr&&dc)?1.414:1);
+      if(ver[ni]!==V||ng<g_[ni]){ver[ni]=V;g_[ni]=ng;f_[ni]=ng+H(ni);came[ni]=cur;push(ni);} }
+    const vl=vlink.get(cur); if(vl)for(const ni of vl){ if(!navPassable(ni))continue; const ng=g_[cur]+2.4; if(ver[ni]!==V||ng<g_[ni]){ver[ni]=V;g_[ni]=ng;f_[ni]=ng+H(ni);came[ni]=cur;push(ni);} }
+  }
   if(!found)return null;
-  const path=[]; let c=goal; while(c>=0){const r=(c/cols)|0,cc=c%cols;path.push({x:minX+(cc+0.5)*cell,z:minZ+(r+0.5)*cell});c=came[c];} path.reverse(); return path;
+  const path=[]; let c=goal; while(c>=0){const k=c%cs,r=(k/cols)|0,cc=k%cols;path.push({x:minX+(cc+0.5)*cell,z:minZ+(r+0.5)*cell});c=came[c];} path.reverse(); return path;
 }
 function navLOS(sx,sz,gx,gz){ const d=Math.hypot(gx-sx,gz-sz), n=Math.ceil(d/0.5); for(let i=1;i<n;i++){const t=i/n; if(blocked(sx+(gx-sx)*t,sz+(gz-sz)*t,0.2))return false;} return true; }
 // --- debug overlay ---
 let _navDbgPts=null,_navDbgPaths=null;
 function toggleNavDebug(){ NAV.debug=!NAV.debug;
   if(NAV.debug){
-    if(!_navDbgPts){ const arr=[]; for(let ri=0;ri<NAV.rows;ri++)for(let ci=0;ci<NAV.cols;ci++){ if(NAV.walk[ri*NAV.cols+ci]){ arr.push(NAV.minX+(ci+0.5)*NAV.cell,0.06,NAV.minZ+(ri+0.5)*NAV.cell);} } const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(arr),3)); _navDbgPts=new THREE.Points(g,new THREE.PointsMaterial({color:0x00ff88,size:.08})); }
+    if(!_navDbgPts){ _navDbgPts=new THREE.Group(); const {cols,rows,cell,minX,minZ,cs,NL}=NAV;
+      for(let li=0;li<NL;li++){ const arr=[]; const fy=NAV_FYS[li];
+        for(let ri=0;ri<rows;ri++)for(let ci=0;ci<cols;ci++){ if(navPassable(li*cs+ri*cols+ci)) arr.push(minX+(ci+0.5)*cell, fy+0.08, minZ+(ri+0.5)*cell); }
+        const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(arr),3));
+        _navDbgPts.add(new THREE.Points(g,new THREE.PointsMaterial({color:NAV_LCOL[li],size:.09,fog:false}))); }
+      // portal links as vertical yellow lines
+      const ls=[]; for(const [a,arr] of NAV.vlink){ const p=gi=>{const li=(a/cs|0);}; const A=a,cA=A%cs,rA=(cA/cols|0),ccA=cA%cols,lA=(A/cs|0);
+        for(const b of arr){ const cB=b%cs,rB=(cB/cols|0),ccB=cB%cols,lB=(b/cs|0);
+          ls.push(minX+(ccA+0.5)*cell,NAV_FYS[lA]+0.1,minZ+(rA+0.5)*cell, minX+(ccB+0.5)*cell,NAV_FYS[lB]+0.1,minZ+(rB+0.5)*cell); } }
+      const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(ls),3)); _navDbgPts.add(new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:0xffee44,fog:false})));
+    }
     scene.add(_navDbgPts); if(_navDbgPaths)scene.add(_navDbgPaths);
-    flashMsg('◈ NAV DEBUG ON');
+    flashMsg('◈ NAV DEBUG ON — green=ground orange=basement blue=upper');
   } else { if(_navDbgPts)scene.remove(_navDbgPts); if(_navDbgPaths)scene.remove(_navDbgPaths); flashMsg('◈ NAV DEBUG OFF'); }
 }
 function updateNavDebug(){
   if(!NAV.debug)return; const segs=[];
-  for(const z of ZOMBIES){ if(z.dead||!z.path)continue; let px=z.pos.x,pz=z.pos.z; for(let i=z.pathI||0;i<z.path.length;i++){ segs.push(px,0.1,pz, z.path[i].x,0.1,z.path[i].z); px=z.path[i].x;pz=z.path[i].z; } }
+  for(const z of ZOMBIES){ if(z.dead||!z.path)continue; let px=z.pos.x,pz=z.pos.z,py=(z.pos.y||0)+0.12;
+    for(let i=z.pathI||0;i<z.path.length;i++){ const wx=z.path[i].x,wz=z.path[i].z,wy=getFloorH(wx,wz,py)+0.12; segs.push(px,py,pz, wx,wy,wz); px=wx;pz=wz;py=wy; } }
   if(_navDbgPaths){scene.remove(_navDbgPaths);_navDbgPaths.geometry.dispose();}
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(segs),3));
-  _navDbgPaths=new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0xff3366})); scene.add(_navDbgPaths);
+  _navDbgPaths=new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0xff3366,fog:false})); scene.add(_navDbgPaths);
 }
 bakeNavGrid(); // build the A* grid now that NAV + all colliders exist (runs before the first zombie spawns)
 </script>
