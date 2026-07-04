@@ -229,6 +229,13 @@ body{background:#000;overflow:hidden;font-family:'Arial',sans-serif;}
 <script src="./vendor/pp/ShaderPass.js"></script>
 <script src="./vendor/pp/MaskPass.js"></script>
 <script src="./vendor/pp/UnrealBloomPass.js"></script>
+<!-- Phase 1: HDRI loader, SSAO, model loaders (MIT three.js r128 addons) -->
+<script src="./vendor/pp/RGBELoader.js"></script>
+<script src="./vendor/pp/SimplexNoise.js"></script>
+<script src="./vendor/pp/SSAOShader.js"></script>
+<script src="./vendor/pp/SSAOPass.js"></script>
+<script src="./vendor/pp/GLTFLoader.js"></script>
+<script src="./vendor/pp/DRACOLoader.js"></script>
 <script>
 'use strict';
 // ================================================================
@@ -811,7 +818,7 @@ document.body.insertBefore(renderer.domElement, document.body.firstChild);
 
 // Cap internal render resolution (upscaled via CSS). Huge fill-rate saver on
 // 4K / ultrawide fullscreen — the main reason "it lags no matter the GPU".
-const RENDER_MAXPX = 2300000; // ~2048x1120; no effect at/below this (e.g. 1280x720)
+let RENDER_MAXPX = 2300000; // ~2048x1120; adjusted by graphics preset
 function sizeRenderer(){
   const px = innerWidth*innerHeight;
   const s = px>RENDER_MAXPX ? Math.sqrt(RENDER_MAXPX/px) : 1;
@@ -857,6 +864,77 @@ function renderFrame(){
   renderer.render(scene,CAM);
 }
 sizeRenderer(); // apply the resolution cap now that composer + CAM exist
+
+// ================= PHASE 1: REAL ASSETS (IBL + PBR textures + film grade) =================
+let _grainPass=null, _assetsTotal=0, _assetsLoaded=0;
+(function phase1Assets(){
+  // --- Image-based lighting from a night HDRI (reflections + ambient on all PBR mats) ---
+  try{
+    const pmrem=new THREE.PMREMGenerator(renderer); pmrem.compileEquirectangularShader();
+    new THREE.RGBELoader().load('assets/hdri/night_1k.hdr',(hdr)=>{
+      try{ scene.environment=pmrem.fromEquirectangular(hdr).texture; }catch(e){ console.warn('env map',e); }
+      hdr.dispose(); pmrem.dispose();
+    }, undefined, ()=>console.warn('HDRI failed to load — keeping analytic lights'));
+  }catch(e){ console.warn('IBL unavailable',e); }
+
+  // --- Real PBR texture sets onto the map materials (keeps procedural as fallback) ---
+  const texLoader=new THREE.TextureLoader();
+  function pbr(dir,mat,rep){
+    if(!mat) return;
+    const cfg=(t,srgb)=>{t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rep,rep);t.anisotropy=4;if(srgb)t.encoding=THREE.sRGBEncoding;};
+    _assetsTotal+=3;
+    const ok=()=>{_assetsLoaded++;};
+    texLoader.load('assets/textures/'+dir+'/albedo.jpg',t=>{cfg(t,true);mat.map=t;mat.color.setHex(0xf2ede6);mat.needsUpdate=true;ok();},undefined,ok);
+    texLoader.load('assets/textures/'+dir+'/normal.jpg',t=>{cfg(t,false);mat.normalMap=t;mat.normalScale=new THREE.Vector2(1,1);mat.needsUpdate=true;ok();},undefined,ok);
+    texLoader.load('assets/textures/'+dir+'/rough.jpg',t=>{cfg(t,false);mat.roughnessMap=t;mat.roughness=1.0;mat.needsUpdate=true;ok();},undefined,ok);
+  }
+  pbr('marble',  M.floor, 6);
+  pbr('plaster', M.wall,  4);
+  pbr('brick',   M.wall2, 4);
+  pbr('concrete',M.wall3, 4);
+  pbr('concrete',M.ceil,  5);
+  pbr('planks',  M.stageWood, 3);
+  pbr('planks',  M.crate, 1.5);
+  pbr('marble',  M.pillar,3);
+  pbr('woodfloor',M.door, 2);
+
+  // --- Cinematic film grain + vignette (final composer pass) ---
+  if(composer && typeof THREE.ShaderPass==='function'){
+    try{
+      _grainPass=new THREE.ShaderPass({
+        uniforms:{ tDiffuse:{value:null}, uTime:{value:0}, uGrain:{value:0.05}, uVig:{value:1.1} },
+        vertexShader:'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+        fragmentShader:[
+          'varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform float uGrain; uniform float uVig;',
+          'float rand(vec2 c){return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453);}',
+          'void main(){',
+          '  vec4 col=texture2D(tDiffuse,vUv);',
+          '  float g=(rand(vUv+fract(uTime))-0.5)*uGrain; col.rgb+=g;',
+          '  vec2 d=vUv-0.5; float vig=1.0-dot(d,d)*uVig*2.2; col.rgb*=clamp(vig,0.32,1.0);',
+          '  gl_FragColor=col;',
+          '}'
+        ].join('\n')
+      });
+      composer.addPass(_grainPass);
+    }catch(e){ console.warn('grain pass failed',e); }
+  }
+})();
+
+// Graphics quality presets + live FPS overlay (dev menu: K cycles the preset)
+const _fpsEl=document.createElement('div');
+_fpsEl.style.cssText='position:absolute;top:44px;left:16px;z-index:50;display:none;font-family:monospace;font-size:13px;color:#7fff7f;text-shadow:0 0 4px #000;pointer-events:none;';
+document.body.appendChild(_fpsEl);
+let GFX='High';
+function applyGraphics(p){
+  GFX=p;
+  const c=({Low:{px:1300000,sh:false,bl:false,gr:false},Med:{px:1900000,sh:true,bl:false,gr:true},High:{px:2300000,sh:true,bl:true,gr:true},Ultra:{px:3400000,sh:true,bl:true,gr:true}})[p]||{px:2300000,sh:true,bl:true,gr:true};
+  RENDER_MAXPX=c.px;
+  renderer.shadowMap.enabled=c.sh; renderer.shadowMap.needsUpdate=true;
+  bloomEnabled=c.bl; if(bloomPass)bloomPass.enabled=c.bl;
+  if(_grainPass)_grainPass.enabled=c.gr;
+  sizeRenderer();
+  if(typeof flashMsg==='function')flashMsg('Graphics: '+p);
+}
 
 // ---- Lighting (Kino der Toten: moonlight + warm chandeliers) ----
 // Cold moonlight raking down through the shattered roof — the one shadow-caster
@@ -2724,6 +2802,7 @@ document.addEventListener('keydown',e=>{
       PL.maxHealth=250; refreshPerks(); break;
     case 'KeyY': devNextRound(); break;
     case 'KeyB': bloomEnabled=!bloomEnabled; if(bloomPass) bloomPass.enabled=bloomEnabled; break;
+    case 'KeyK': { const order=['Low','Med','High','Ultra']; applyGraphics(order[(order.indexOf(GFX)+1)%order.length]); break; }
     default: return;
   }
   updateDevHUD();updateHUD();
@@ -3988,11 +4067,16 @@ PL._phdReady=false;
 let wasInAir=false;
 let heartbeatT=0,ambBreathT=14+Math.random()*10,distScreamT=55+Math.random()*50;
 
+let FPS=60,_fpsAcc=0,_fpsN=0;
 function loop(){
   requestAnimationFrame(loop);
   const now=performance.now();
   const dt=Math.min((now-lastT)/1000,.05);
   lastT=now;
+  // FPS (smoothed) + animated film grain
+  if(dt>0){_fpsAcc+=1/dt;_fpsN++;if(_fpsN>=15){FPS=Math.round(_fpsAcc/_fpsN);_fpsAcc=0;_fpsN=0;}}
+  if(_grainPass&&_grainPass.enabled) _grainPass.uniforms.uTime.value=now*0.001;
+  if(_fpsEl){ if(DEV.enabled){_fpsEl.style.display='block';_fpsEl.textContent='FPS '+FPS+'  ['+GFX+']';} else if(_fpsEl.style.display!=='none') _fpsEl.style.display='none'; }
   mystLight.intensity=2.8+Math.sin(now*.005)*1;
   const lidTarget=(mystState==='idle')?0:1;
   mystLidAngle+=(lidTarget-mystLidAngle)*Math.min(1,dt*4);

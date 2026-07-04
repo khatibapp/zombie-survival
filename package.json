@@ -1,6 +1,6 @@
 {
   "name": "zombie-survival",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "Zombie Survival — desktop build",
   "main": "main.js",
   "author": "Omar",
@@ -25,7 +25,8 @@
     "files": [
       "main.js",
       "index.html",
-      "vendor/**/*"
+      "vendor/**/*",
+      "assets/**/*"
     ],
     "win": {
       "target": [
