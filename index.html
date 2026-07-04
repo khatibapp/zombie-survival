@@ -4639,6 +4639,7 @@ function updateWSlots(){
 
 let nearPrompt=false;
 function updatePrompt(){
+  const now=performance.now();
   const px=PL.pos.x,pz=PL.pos.z,py=PL.pos.y;
   let near=null,nd=Infinity;
   for(const d of DOOR_LIST){
