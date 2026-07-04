@@ -1186,13 +1186,14 @@ const ROOMS={
   atrium:   {x0:-11,x1:11, z0:-11,z1:11, fy:0, open:true },
   lab:      {x0:-11,x1:11, z0:-33,z1:-11,fy:0, open:false},
   foyer:    {x0:-11,x1:11, z0:11, z1:33, fy:0, open:false},
-  theater:  {x0:-37,x1:-11,z0:-11,z1:11, fy:0, open:false},
+  // GRAND THEATER: former Theater + West Gallery merged into one soaring 2-story volume
+  theater:  {x0:-57,x1:-11,z0:-11,z1:11, fy:0, open:false},
   courtyard:{x0:11, x1:37, z0:-11,z1:11, fy:0, open:false},
-  // v3.1 ground-floor expansion (visible new wings extending the footprint outward)
-  morgue:   {x0:-37,x1:-11,z0:-33,z1:-11,fy:0, open:false}, // NW, off the Theater's north wall
-  gallery:  {x0:-57,x1:-37,z0:-11,z1:11, fy:0, open:false}, // far W, off the Theater's west wall
-  chapel:   {x0:11, x1:35, z0:11, z1:37, fy:0, open:false}, // SE, off the Foyer's east wall
-  depot:    {x0:11, x1:37, z0:-33,z1:-11,fy:0, open:false}, // NE, off the Courtyard's north wall
+  morgue:   {x0:-37,x1:-11,z0:-33,z1:-11,fy:0, open:false}, // NW
+  chapel:   {x0:11, x1:35, z0:11, z1:37, fy:0, open:false}, // SE (interior-court south side)
+  depot:    {x0:11, x1:37, z0:-33,z1:-11,fy:0, open:false}, // NE
+  // v3.2 curved crawl-width back-corridor behind the Lab (Morgue <-> Depot loop, faceted arc)
+  passage:  {x0:-37,x1:37, z0:-40,z1:-33,fy:0, open:false},
 };
 function inOpenRoom(x,z,y){
   for(const k in ROOMS){ const r=ROOMS[k]; if(r.open && x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1 && (y===undefined||Math.abs(r.fy-y)<2.9)) return true; }
@@ -2233,6 +2234,27 @@ function dressMap(){
 }
 renderer.shadowMap.needsUpdate = true; // bake static shadows now that the map exists
 
+/*  ============ GROUND-FLOOR FOOTPRINT (v3.2 — irregular, looped, off-center) ============
+    -z = NORTH,  +z = SOUTH,  -x = WEST,  +x = EAST.  Doors shown as ':'  (buy to open).
+
+              ,--UNDERCROFT PASSAGE (curved crawl corridor, arcs to z-39)--,
+        MORGUE :············ LAB (PaP) ············: SUPPLY DEPOT           |  z -33..-11
+        (-37..-11)  :            :                :   (11..37)              |
+            :       :            :                :        :               |
+    GRAND THEATER   :          ATRIUM             :    COURTYARD           |  z -11..11
+    (2-story, ruined:          (spawn,            :   (interior court,     |
+     W end, -57..-11:           off-centre E)     :    wrapped 3 sides)    |
+                    :            :                                         |
+                  FOYER : ······································· CHAPEL ····'  z 11..37
+                  (-11..11)                                    (11..35)
+
+    Circulation LOOPS (no out-and-back from a single hub):
+      L1 (north):   Atrium -> Lab -> Depot -> Courtyard -> Atrium
+      L2 (nw):      Atrium -> Lab -> Morgue -> Theater -> Atrium
+      L3 (south):   Atrium -> Foyer -> Chapel -> Courtyard -> Atrium
+      L4 (back):    Morgue -> Undercroft Passage -> Depot  (curved crawl)
+    Size range: 2-story Grand Theater (H=8.6) ... crawl-height Undercroft (H=2.8).
+    ====================================================================================  */
 function buildMapNew(){
   const H=4.2, T=0.45, DW=3.6;
   const flameMat=new THREE.MeshBasicMaterial({color:0xffd58a});
@@ -2340,7 +2362,7 @@ function buildMapNew(){
 
   // ===== LAB (north) x-11..11 z-33..-11 =====
   flr(0,-22,22,22,std(0x14181c,.5,.3)); cei(0,-22,22,22);
-  wseg('x',-33,-11,11,M.wall); wseg('z',-11,-33,-11,M.wall); wseg('z',11,-33,-11,M.wall);
+  wseg('x',-33,-11,11,M.wall); wdoor('z',-11,-33,-11,-22,M.wall,'morgue',1500,'Morgue'); wdoor('z',11,-33,-11,-22,M.wall,'depot',1500,'Supply Depot');
   ptL(0,4,-24,0x88ccff,2.2,26);
   { // Pack-a-Punch machine
     const x=0,z=-31.4, pm=std(0x151515,.4,.7), acc=new THREE.MeshStandardMaterial({color:0x2266ff,emissive:0x1144cc,emissiveIntensity:1,roughness:.4,metalness:.5});
@@ -2364,22 +2386,39 @@ function buildMapNew(){
   buySign(-10.7,1.25,18,'x+','MP5',800,'#44ff88');
   mesh(box(3,.02,20),M.velvet,0,.02,22);
 
-  // ===== THEATER (west) x-37..-11 z-11..11 =====
-  flr(-24,0,26,22,M.floor); cei(-24,0,26,22);
-  wdoor('z',-37,-11,11,0,M.wall,'gallery',2000,'West Gallery'); wseg('x',11,-37,-11,M.wall); wdoor('x',-11,-37,-11,-24,M.wall,'morgue',1500,'Morgue');
-  ptL(-24,4,0,0xff6644,2.2,28);
-  mesh(box(22,.12,8),M.stageWood,-33,.06,0); // stage platform
-  for(let i=0;i<18;i++){const fz=-9+i*1.05;const fold=new THREE.Mesh(cyl(.42,.42,H-.2,6,1,true,0,Math.PI),M.velvet);fold.position.set(-36.3,(H-.2)/2,fz);scene.add(fold);}
-  for(const pz of [-7.5,7.5]){mesh(cyl(.34,.4,H,12),M.gilt,-30,H/2,pz);addCol(COLS,-30,pz,.45,.45);}
-  mesh(box(.5,.6,16),M.gilt,-30,H-.2,0);
-  for(let s=0;s<6;s++){mesh(box(.7,.5,.7),M.velvet,-18,.25,-6+s*2.4);mesh(box(.7,.5,.7),M.velvet,-20,.25,-6+s*2.4);}
-  perkMachine(-14,-9,0xdd7700,'Double Tap','dtap');
-  perkMachine(-14,9,0x33bb33,'Mule Kick','mule');
-  buySign(-24,1.25,-10.7,'z+','M16A1',1200,'#4488ff');
+  // ===== GRAND THEATER — 2-story W auditorium (former Theater + West Gallery, merged) x-57..-11 z-11..11 =====
+  const TH2=8.6; // double-height; Part 2 hangs a Balcony ring over this volume
+  flr(-34,0,46,22,M.floor);
+  wseg('z',-57,-11,11,M.wall);                               // far-west wall
+  wseg('x',11,-57,-11,M.wall);                               // south wall (full span)
+  wdoor('x',-11,-57,-11,-24,M.wall,'morgue',1500,'Morgue');  // north wall + Morgue door
+  // 2nd-story wall band (visual; wseg colliders above are height-independent)
+  mesh(box(T,TH2-H,22),M.wall,-57,(H+TH2)/2,0);
+  mesh(box(46,TH2-H,T),M.wall,-34,(H+TH2)/2,11);
+  mesh(box(46,TH2-H,T),M.wall,-34,(H+TH2)/2,-11);
+  mesh(box(T,TH2-H,22),M.wall,-11,(H+TH2)/2,0);
+  { const c=new THREE.Mesh(box(46,.3,22),M.ceil); c.position.set(-34,TH2+.15,0); c.receiveShadow=true; scene.add(c); }
+  ptL(-22,6.4,0,0xff6644,2.4,30); ptL(-48,5.2,0,0x8aa0cc,1.7,26);
+  // stage (west-center) + full-height curtain + proscenium columns
+  mesh(box(20,.12,8),M.stageWood,-42,.06,0);
+  for(let i=0;i<20;i++){const fz=-9.5+i*1.0;const fold=new THREE.Mesh(cyl(.42,.42,TH2-.4,6,1,true,0,Math.PI),M.velvet);fold.position.set(-55.6,(TH2-.4)/2,fz);scene.add(fold);}
+  for(const pz of [-7.5,7.5]){mesh(cyl(.36,.42,TH2,12),M.gilt,-37,TH2/2,pz);addCol(COLS,-37,pz,.46,.46);}
+  mesh(box(.5,.7,16),M.gilt,-37,TH2-.4,0);
+  // audience seating (mid)
+  for(let s=0;s<7;s++){mesh(box(.7,.5,.7),M.velvet,-26,.25,-7+s*2.2);mesh(box(.7,.5,.7),M.velvet,-24,.25,-7+s*2.2);mesh(box(.7,.5,.7),M.velvet,-22,.25,-7+s*2.2);}
+  // ruined far-west end: collapsed columns, rubble, moonlight shaft up through the roof
+  for(const cz of [-7,7]){ mesh(cyl(.4,.46,3.2,12),(M.pillar||std(0x6a6258,.6,.1)),-51,1.6,cz); mesh(cyl(.4,.44,1.2,12),(M.pillar||std(0x6a6258,.6,.1)),-54,.6,cz); addCol(COLS,-51,cz,.5,.5); }
+  for(let i=0;i<10;i++){ const s=.4+((i*7)%5)*.14; mesh(box(s,s,s),std(0x3a352c,.8,.05),-54+(i%5)*1.2,s/2,-2+((i/5)|0)*2.2); }
+  { const beam=new THREE.Mesh(cyl(1.8,2.7,TH2,16,1,true),new THREE.MeshBasicMaterial({color:0xbcd0ff,transparent:true,opacity:.08,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending})); beam.position.set(-50,TH2/2,2); scene.add(beam); ptL(-50,TH2-.6,2,0xbcd0ff,1.6,18); }
+  // FALLEN chandelier crashed on the floor (landmark of decay)
+  { const fc=new THREE.Group(); const r=new THREE.Mesh(new THREE.TorusGeometry(.95,.06,8,20),M.gilt); r.rotation.set(Math.PI/2.3,.3,0); fc.add(r); for(let i=0;i<8;i++){const a=i/8*Math.PI*2; const arm=new THREE.Mesh(cyl(.03,.03,.5,6),M.gilt); arm.position.set(Math.cos(a)*.9,.12,Math.sin(a)*.9); arm.rotation.z=.4; fc.add(arm);} fc.position.set(-30,.3,5); scene.add(fc); addCol(COLS,-30,5,1.1,1.1); }
+  perkMachine(-34,9,0xdd7700,'Double Tap','dtap');
+  perkMachine(-18,9,0x33bb33,'Mule Kick','mule');
+  buySign(-30,1.25,-10.7,'z+','M16A1',1200,'#4488ff');
 
   // ===== COURTYARD (east) x11..37 z-11..11 =====
   flr(24,0,26,22,std(0x1a1814,.9,.05)); cei(24,0,26,22,std(0x05060a,.95,0));
-  wseg('z',37,-11,11,M.wall); wseg('x',11,11,37,M.wall); wdoor('x',-11,11,37,24,M.wall,'depot',1500,'Supply Depot');
+  wseg('z',37,-11,11,M.wall); wdoor('x',11,11,37,24,M.wall,'chapel',1750,'Chapel'); wdoor('x',-11,11,37,24,M.wall,'depot',1500,'Supply Depot');
   ptL(24,4,0,0x8899cc,1.9,28);
   perkMachine(14,-9,0x11dd11,'Stamin-Up','stam');
   perkMachine(34,-8,0xdd11aa,'PhD Flopper','phd');
@@ -2389,21 +2428,14 @@ function buildMapNew(){
   // ============ v3.1 GROUND-FLOOR EXPANSION — four new wings ============
   // ===== MORGUE (NW) x-37..-11 z-33..-11 — enter from Theater's north wall =====
   flr(-24,-22,26,22,std(0x101418,.5,.25)); cei(-24,-22,26,22);
-  wseg('x',-33,-37,-11,M.wall); wseg('z',-37,-33,-11,M.wall);
+  wdoor('x',-33,-37,-11,-24,M.wall,'passage',900,'Undercroft'); wseg('z',-37,-33,-11,M.wall);
   ptL(-24,3.6,-22,0x66ccaa,1.7,24);
   for(let c=0;c<7;c++){ mesh(box(2.9,3.3,.5),std(0x3a4046,.35,.7),-34+c*3.4,1.7,-32.4);
     const h=new THREE.Mesh(sph(.05,6,5),new THREE.MeshBasicMaterial({color:0x9fe8c8})); h.position.set(-34+c*3.4,1.7,-32.1); scene.add(h); }
   for(const gz of [-18,-25]){ mesh(box(2,.12,.9),std(0x6a7076,.4,.6),-20,.95,gz); addCol(COLS,-20,gz,1.05,.5); mesh(box(1.8,.35,.7),std(0x8a3030,.5,.3),-20,1.2,gz); }
   mesh(cyl(.02,.02,1.2,6),(M.brass||std(0x6a5320,.3,.9)),-24,H-.6,-22); { const l=new THREE.Mesh(sph(.32,10,8),new THREE.MeshBasicMaterial({color:0xdfffe8})); l.position.set(-24,H-1.2,-22); scene.add(l); }
 
-  // ===== WEST GALLERY (far W) x-57..-37 z-11..11 — enter from Theater's west wall =====
-  flr(-47,0,20,22,std(0x181410,.6,.15)); cei(-47,0,20,22);
-  wseg('z',-57,-11,11,M.wall); wseg('x',-11,-57,-37,M.wall); wseg('x',11,-57,-37,M.wall);
-  ptL(-47,3.6,0,0x8aa0cc,1.5,24);
-  for(const cz of [-6,6]){ mesh(cyl(.4,.46,2.6,12),(M.pillar||std(0x6a6258,.6,.1)),-42,1.3,cz); mesh(cyl(.4,.44,1.1,12),(M.pillar||std(0x6a6258,.6,.1)),-52,.55,cz); addCol(COLS,-42,cz,.5,.5); }
-  for(let i=0;i<10;i++){ const s=.4+((i*7)%5)*.14; mesh(box(s,s,s),std(0x3a352c,.8,.05),-50+(i%5)*1.4,s/2,-2+((i/5)|0)*2.2); }
-  { const beam=new THREE.Mesh(cyl(1.6,2.2,H,16,1,true),new THREE.MeshBasicMaterial({color:0xbcd0ff,transparent:true,opacity:.09,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending})); beam.position.set(-47,H/2,3); scene.add(beam); ptL(-47,H-.5,3,0xbcd0ff,1.4,15); }
-  mesh(box(.7,.7,2.4),std(0x565049,.7,.05),-54,.35,-7); addCol(COLS,-54,-7,.5,1.2);
+  // (West Gallery merged into the Grand Theater above — no longer a separate room)
 
   // ===== CHAPEL (SE) x11..35 z11..37 — enter from Foyer's east wall =====
   flr(23,24,24,26,std(0x14100c,.6,.1)); cei(23,24,24,26);
@@ -2417,7 +2449,7 @@ function buildMapNew(){
 
   // ===== SUPPLY DEPOT (NE) x11..37 z-33..-11 — enter from Courtyard's north wall =====
   flr(24,-22,26,22,std(0x161310,.7,.08)); cei(24,-22,26,22);
-  wseg('x',-33,11,37,M.wall); wseg('z',37,-33,-11,M.wall);
+  wdoor('x',-33,11,37,24,M.wall,'passage',900,'Undercroft'); wseg('z',37,-33,-11,M.wall);
   ptL(24,3.6,-22,0xffd089,1.6,24);
   crate(15,-30);crate(16.2,-30); mesh(box(1.1,1.1,1.1),M.crate,15.6,1.65,-30); crate(34,-30);crate(33,-28);
   for(let i=0;i<3;i++){ mesh(box(.5,2,3),std(0x2a2c30,.4,.8),36,1,-26+i*4); addCol(COLS,36,-26+i*4,.4,1.5); }
@@ -2425,6 +2457,19 @@ function buildMapNew(){
   mesh(box(2.2,1,1.8),std(0x2a2a22,.6,.4),24,1.4,-23);
   for(const wz of [-17.5,-22.5]) for(const wx of [22.6,25.4]){ mesh(cyl(.5,.5,.4,12),std(0x0a0a0a,.8,.1),wx,.5,wz,0,0,Math.PI/2); }
   for(let i=0;i<6;i++){ mesh(box(.9,.4,.5),std(0x5a5238,.9,.02),14+i*.6,.2+(i%2)*.4,-13.2); }
+
+  // ===== UNDERCROFT PASSAGE — curved crawl-width back-corridor behind the Lab (Morgue<->Depot loop) =====
+  // South edge = the Morgue/Lab/Depot north walls (z=-33, two doors punched above). North edge = a
+  // faceted parabolic arc bowing out to z~-39 behind the Lab. Low ceiling for a cramped crawl feel.
+  flr(0,-36.5,74,7,std(0x0e0c0a,.85,.03));
+  { const c=new THREE.Mesh(box(74,.2,7),M.ceil); c.position.set(0,2.8,-36.5); scene.add(c); }
+  { const N=16,x0=-36,x1=36; const zAt=x=>-34-5*(1-(x/36)*(x/36)); let px=x0,pz=zAt(x0);
+    for(let i=1;i<=N;i++){ const x=x0+(x1-x0)*i/N, z=zAt(x); const cx=(px+x)/2, cz=(pz+z)/2, len=Math.hypot(x-px,z-pz), ang=Math.atan2(z-pz,x-px);
+      mesh(box(len+.12,2.9,T),M.wall,cx,1.45,cz,0,-ang,0); addCol(COLS,cx,cz,len/2+.12,.45); px=x; pz=z; } }
+  wseg('z',-37,-40,-33,M.wall); wseg('z',37,-40,-33,M.wall); // end caps
+  ptL(-18,2.3,-36,0x9a7a5a,1.1,16); ptL(18,2.3,-36,0x9a7a5a,1.1,16); ptL(0,2.4,-38,0x8a6a4a,1.0,17);
+  for(const pz2 of [-34.5,-38.4]){ mesh(cyl(.11,.11,70,8),std(0x3a352c,.6,.5),0,2.4,pz2,0,0,Math.PI/2); } // low pipes
+  for(let i=0;i<8;i++){ const s=.3+((i*5)%4)*.13; mesh(box(s,s,s),std(0x2a2620,.85,.03),-28+i*8,s/2,-35.5); } // scattered debris
 }
 
 // ===== MYSTERY BOX =====
@@ -2436,7 +2481,7 @@ const MYSTERY_LOCS=[
   {x:24,z:0},   // courtyard
   {x:23,z:22},  // chapel (SE wing)
   {x:24,z:-24}, // supply depot (NE wing)
-  {x:-47,z:0},  // west gallery
+  {x:-47,z:0},  // theater — ruined far-west end
 ];
 let mystLoc=0;
 // ===== MYSTERY BOX BUILD =====
@@ -4240,12 +4285,14 @@ const SPAWN_PTS=[
   {x:26,z:-4},{x:26,z:6},{x:34,z:2},{x:16,z:4},{x:34,z:8},
   // Morgue (NW wing)
   {x:-30,z:-28},{x:-16,z:-28},{x:-24,z:-30},
-  // West Gallery (far W wing)
+  // Grand Theater — ruined far-west end (former Gallery, now part of Theater)
   {x:-52,z:-6},{x:-52,z:6},{x:-44,z:0},
   // Chapel (SE wing)
   {x:16,z:32},{x:30,z:32},{x:23,z:34},
   // Supply Depot (NE wing)
   {x:16,z:-28},{x:32,z:-28},{x:24,z:-30},
+  // Undercroft Passage (curved back-corridor)
+  {x:-18,z:-36},{x:18,z:-36},{x:0,z:-37},
   // Basement — Boiler Room (fy:-4.5, reached via Lab east stair)
   {x:0,z:-30,fy:-4.5},{x:-8,z:-24,fy:-4.5},{x:8,z:-24,fy:-4.5},
   // Upper — Projection Catwalk (fy:4.5, reached via Lab west stair)
