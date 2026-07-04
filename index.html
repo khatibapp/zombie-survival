@@ -4489,11 +4489,26 @@ const SPAWN_PTS=[
   {x:20,z:22,fy:4.5},{x:30,z:26,fy:4.5},
 ];
 
+// --- spawn eligibility: only rooms the player can actually reach (SPAWN-ONLY fix) ---
+// Each spawn point's room key, computed ONCE now that all ROOMS exist (points are static).
+function spawnRoomKey(x,z,fy){ for(const k in ROOMS){ const r=ROOMS[k]; if(x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1&&Math.abs((r.fy||0)-(fy||0))<2.6) return k; } return null; }
+SPAWN_PTS.forEach(p=>{ p._rk=spawnRoomKey(p.x,p.z,p.fy||0); });
+// Unlocked = the starting Atrium + every room whose access door has been opened.
+// Reuses DOOR_LIST open state (no parallel tracker). Vertical rooms have no door, so they
+// are never "purchased" -> excluded (safest: the player provably reaches unlocked rooms).
+function unlockedRoomSet(){ const s={atrium:1}; for(const d of DOOR_LIST) if(d.open) s[d.roomKey]=1; return s; }
+
 function activeSpawns(){
-  const open=SPAWN_PTS.filter(p=>inOpenRoom(p.x,p.z,p.fy||0));
-  // Part E: prefer spawns on the player's current floor near their zone; fall back to all open.
-  const pf=PL.pos.y, near=open.filter(p=>Math.abs((p.fy||0)-pf)<2.6 && Math.hypot(p.x-PL.pos.x,p.z-PL.pos.z)<34);
-  return near.length>=3 ? near : (open.length?open:SPAWN_PTS);
+  // BUG A — round 1 spawns in the starting room only. BUG B — otherwise only unlocked rooms.
+  let elig;
+  if(round<=1){ elig=SPAWN_PTS.filter(p=>p._rk==='atrium'); }
+  else { const un=unlockedRoomSet(); elig=SPAWN_PTS.filter(p=>p._rk&&un[p._rk]); }
+  // EDGE CASE (safest): never leave the set empty -> fall back to the starting Atrium.
+  if(!elig.length) elig=SPAWN_PTS.filter(p=>p._rk==='atrium');
+  if(!elig.length) elig=[SPAWN_PTS[0]];
+  // Among eligible rooms, prefer spawns on the player's floor near their zone (WHERE only; timing/counts unchanged).
+  const pf=PL.pos.y, near=elig.filter(p=>Math.abs((p.fy||0)-pf)<2.6 && Math.hypot(p.x-PL.pos.x,p.z-PL.pos.z)<34);
+  return near.length>=3 ? near : elig;
 }
 
 function startRound(r){
