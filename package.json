@@ -1,6 +1,6 @@
 {
   "name": "zombie-survival",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Zombie Survival — desktop build",
   "main": "main.js",
   "author": "Omar",
@@ -21,6 +21,7 @@
   "build": {
     "appId": "com.omar.zombiesurvival",
     "productName": "Zombie Survival",
+    "artifactName": "ZombieSurvival-Setup-${version}.${ext}",
     "files": [
       "main.js",
       "index.html",

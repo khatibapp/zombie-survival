@@ -75,6 +75,18 @@ function setupAutoUpdates() {
 
   autoUpdater.on('error', (err) => {
     console.error('Auto-update error:', err);
+    // Surface failures instead of dying silently, so a broken download is obvious.
+    if (win) {
+      dialog.showMessageBox(win, {
+        type: 'warning',
+        title: 'Update failed',
+        message: 'The update could not be installed automatically.',
+        detail: 'You can download the latest version manually from:\n' +
+                'https://github.com/khatibapp/zombie-survival/releases/latest\n\n' +
+                'Details: ' + (err && err.message ? err.message : String(err)),
+        buttons: ['OK']
+      }).catch(() => {});
+    }
   });
 
   // Check on launch. Fails silently if offline.
