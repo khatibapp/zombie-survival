@@ -1226,15 +1226,34 @@ function makeDoor(x,y,z,w,h,d,roomKey,cost,label){
   const t2=new THREE.Mesh(box(w+0.1,0.15,d+0.1),trimMat);t2.position.set(0,-h/2,0);m.add(t2);
   const col={min:{x:x-w/2,z:z-d/2},max:{x:x+w/2,z:z+d/2}};
   DCOLS.push(col);
-  const door={mesh:m,col,roomKey,cost,label,x,z,range:2.5,open:false};
+  const door={mesh:m,col,roomKey,cost,label,x,z,w,d,range:2.5,open:false};
   DOOR_LIST.push(door);
   return door;
+}
+const DOOR_ANIMS=[];
+function updateDoorAnims(dt){
+  for(let i=DOOR_ANIMS.length-1;i>=0;i--){
+    const a=DOOR_ANIMS[i]; a.t+=dt;
+    const k=Math.min(1,a.t/0.7); const e=1-(1-k)*(1-k); // ease-out
+    a.piv.rotation.y=a.dir*1.7*e;
+    if(k>=1) DOOR_ANIMS.splice(i,1);
+  }
 }
 
 function openDoor(door){
   if(door.open) return;
   door.open=true;
-  scene.remove(door.mesh);
+  // Swing the door open on a hinge (collider removed immediately so it's passable).
+  try{
+    const m=door.mesh, wide=(door.d||0)>(door.w||0);
+    const piv=new THREE.Group();
+    if(wide) piv.position.set(door.x, 0, door.z-(door.d/2)); else piv.position.set(door.x-(door.w/2), 0, door.z);
+    scene.add(piv); piv.attach(m);
+    DOOR_ANIMS.push({piv,t:0,dir:wide?1:-1});
+    // dust burst at the doorway
+    if(typeof spawnBlood==='function'){ /* dust reuses particle system below */ }
+    for(let k=0;k<8;k++){ if(typeof PARTICLES!=='undefined'){ const mm=new THREE.Mesh(_bloodGeo,new THREE.MeshBasicMaterial({color:0x6a5a44,transparent:true,opacity:.5})); mm.scale.setScalar(.05+Math.random()*.08); mm.position.set(door.x+(Math.random()-.5)*2,.5+Math.random()*2,door.z+(Math.random()-.5)*2); PARTICLES.push({m:mm,vx:(Math.random()-.5)*.6,vy:.3+Math.random()*.8,vz:(Math.random()-.5)*.6,life:0,ttl:.7+Math.random()*.5}); scene.add(mm); } }
+  }catch(e){ scene.remove(door.mesh); }
   const idx=DCOLS.indexOf(door.col);
   if(idx>=0) DCOLS.splice(idx,1);
   ROOMS[door.roomKey].open=true;
@@ -1994,6 +2013,88 @@ function buildMap(){
 const PERK_ORBS=[]; // global — animated in game loop
 buildMapNew(); // OLD buildMap() is intentionally NOT called — clean new layout, nothing old left behind
 phase1Assets(); // load real PBR textures + IBL + film-grade pass (now that materials M exist)
+dressMap();     // Phase 2: architectural trim + columns + per-room set-dressing (additive, no nav impact)
+
+function dressMap(){
+  const H=4.2;
+  const RD=[
+    {x0:-11,x1:11,z0:-11,z1:11},{x0:-11,x1:11,z0:-33,z1:-11},{x0:-11,x1:11,z0:11,z1:33},
+    {x0:-37,x1:-11,z0:-11,z1:11},{x0:11,x1:37,z0:-11,z1:11},
+  ];
+  const wood=std(0x140f0a,0.72,0.06), gilt=(M.gilt||std(0x8a6a2a,0.35,0.9)), stone=std(0x2a2632,0.75,0.08);
+  const brass=(M.brass||std(0x6a5320,0.3,0.95)), glassEm=col=>new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.55});
+  function deco(g,m,x,y,z,rx,ry,rz){const o=new THREE.Mesh(g,m);o.position.set(x||0,y||0,z||0);o.rotation.set(rx||0,ry||0,rz||0);o.castShadow=true;o.receiveShadow=true;scene.add(o);return o;}
+
+  // ---- architectural trim in every room ----
+  for(const r of RD){
+    const cx=(r.x0+r.x1)/2,cz=(r.z0+r.z1)/2,w=r.x1-r.x0,d=r.z1-r.z0;
+    deco(box(w-.2,.26,.12),wood,cx,.13,r.z0+.14); deco(box(w-.2,.26,.12),wood,cx,.13,r.z1-.14);           // baseboards
+    deco(box(.12,.26,d-.2),wood,r.x0+.14,.13,cz); deco(box(.12,.26,d-.2),wood,r.x1-.14,.13,cz);
+    deco(box(w-.2,.08,.06),wood,cx,1.2,r.z0+.12); deco(box(w-.2,.08,.06),wood,cx,1.2,r.z1-.12);            // chair-rail
+    deco(box(.06,.08,d-.2),wood,r.x0+.12,1.2,cz); deco(box(.06,.08,d-.2),wood,r.x1-.12,1.2,cz);
+    deco(box(w-.15,.2,.18),gilt,cx,H-.13,r.z0+.16); deco(box(w-.15,.2,.18),gilt,cx,H-.13,r.z1-.16);        // cornice
+    deco(box(.18,.2,d-.15),gilt,r.x0+.16,H-.13,cz); deco(box(.18,.2,d-.15),gilt,r.x1-.16,H-.13,cz);
+    for(let i=1;i<=3;i++) deco(box(w-.4,.24,.24),wood,cx,H-.17,r.z0+d*i/4);                                 // ceiling beams
+  }
+
+  // ---- fluted columns w/ base + capital (atrium corners) ----
+  for(const p of [[-8,-8],[8,-8],[-8,8],[8,8]]){
+    const x=p[0],z=p[1];
+    deco(box(.92,.3,.92),stone,x,.15,z); deco(box(.74,.14,.74),stone,x,.34,z);
+    deco(cyl(.36,.4,H-1.05,16),stone,x,H/2,z);
+    for(let i=0;i<8;i++){const a=i/8*Math.PI*2; deco(box(.05,H-1.1,.05),stone,x+Math.cos(a)*.33,H/2,z+Math.sin(a)*.33);}
+    deco(box(.82,.16,.82),gilt,x,H-.52,z); deco(box(.98,.22,.98),gilt,x,H-.36,z);
+  }
+
+  // ---- LAB: tesla coils, specimen jars, cables ----
+  for(const cxp of [-6,6]){
+    deco(cyl(.28,.34,.5,12),stone,cxp,.25,-22); deco(cyl(.14,.16,1.5,12),brass,cxp,1.1,-22);
+    for(let i=0;i<4;i++) deco(new THREE.TorusGeometry(.22-i*.03,.03,8,16),brass,cxp,1.7+i*.12,-22,Math.PI/2);
+    const orb=new THREE.Mesh(sph(.16,12,10),glassEm(0x66ccff)); orb.position.set(cxp,2.35,-22); scene.add(orb);
+    addCol(COLS,cxp,-22,.4,.4);
+  }
+  for(let i=0;i<3;i++){ const jx=-2.4+i*2.4; deco(cyl(.15,.15,.5,12),new THREE.MeshStandardMaterial({color:0x223,transparent:true,opacity:.35,roughness:.05,metalness:0}),jx,.85,-13); const fl=new THREE.Mesh(cyl(.11,.11,.36,10),glassEm(i===1?0x33ff88:0xaa66ff)); fl.position.set(jx,.82,-13); scene.add(fl); }
+  deco(box(1.8,.1,.5),wood,0,.55,-13); deco(box(1.9,.55,.06),wood,0,.3,-12.8); // bench
+
+  // ---- FOYER: ticket booth + posters ----
+  deco(box(2.2,2.0,1.6),wood,8,1.0,15); deco(box(2.4,.12,1.8),gilt,8,2.05,15); deco(box(1.6,.9,.1),new THREE.MeshStandardMaterial({color:0x0a0c10,roughness:.1,metalness:.1,transparent:true,opacity:.4}),8,1.3,13.9); addCol(COLS,8,15,1.2,.9);
+  function poster(x,y,z,ry,txt,col){const c=document.createElement('canvas');c.width=128;c.height=180;const g=c.getContext('2d');g.fillStyle='#160d08';g.fillRect(0,0,128,180);g.strokeStyle=col;g.lineWidth=5;g.strokeRect(5,5,118,170);g.fillStyle=col;g.font='bold 16px Georgia';g.textAlign='center';txt.split('\n').forEach((l,i)=>g.fillText(l,64,40+i*26));const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;deco(box(.9,1.3,.05),new THREE.MeshStandardMaterial({map:t,roughness:.6}),x,y,z,0,ry,0);}
+  poster(-10.7,2.1,15,Math.PI/2,'THE\nGRAND\nSHOW','#c9a24a'); poster(-10.7,2.1,24,Math.PI/2,'TONIGHT\nONLY','#aa3b2b');
+
+  // ---- THEATER: fallen chandelier + more seats (instanced) + torn curtain ----
+  deco(new THREE.TorusGeometry(.7,.06,8,20),gilt,-31,.25,3,Math.PI/2.3,0,.4);
+  for(let i=0;i<6;i++){const a=i/6*Math.PI*2; const b=new THREE.Mesh(sph(.05,6,5),glassEm(0xffd58a)); b.position.set(-31+Math.cos(a)*.7,.3,3+Math.sin(a)*.7); scene.add(b);}
+  { // instanced velvet seats (rows facing the stage)
+    const seatGeo=box(.7,.5,.7); const seatMat=(M.velvet||std(0x540c11,.9,0)); const rows=4,cols=6,N=rows*cols;
+    const im=new THREE.InstancedMesh(seatGeo,seatMat,N); const dm=new THREE.Object3D(); let n=0;
+    for(let rI=0;rI<rows;rI++)for(let cI=0;cI<cols;cI++){ dm.position.set(-22+rI*1.4,.28,-6+cI*2.2); dm.updateMatrix(); im.setMatrixAt(n++,dm.matrix); }
+    im.instanceMatrix.needsUpdate=true; im.castShadow=true; scene.add(im);
+  }
+
+  // ---- COURTYARD: sandbag nests + wrecked truck + barbed wire + rubble ----
+  const sand=std(0x3a3022,0.96,0);
+  function sandbags(x,z){ for(let r=0;r<3;r++)for(let c=0;c<3-r;c++){ deco(cyl(.26,.26,.24,8),sand,x+(c-(2-r)/2)*.5,.13+r*.22,z,Math.PI/2);} addCol(COLS,x,z,.8,.4); }
+  sandbags(16,7); sandbags(34,-3);
+  { // wrecked truck
+    const tx=28,tz=3, body=std(0x2a2c22,0.7,0.3), tire=std(0x0e0e10,0.9,0);
+    deco(box(2.0,1.0,3.8),body,tx,.7,tz); deco(box(1.9,1.1,1.6),body,tx,1.4,tz-1.0);
+    for(const wp of [[-.9,-1.4],[.9,-1.4],[-.9,1.4],[.9,1.4]]) deco(cyl(.42,.42,.3,12),tire,tx+wp[0],.42,tz+wp[1],0,0,Math.PI/2);
+    addCol(COLS,tx,tz,1.2,2.1);
+  }
+  for(let i=0;i<8;i++){ const zx=13+i*3; deco(cyl(.02,.02,3,4),brass,zx,1.2,10.6,0,0,Math.PI/2); } // barbed wire strand
+  { // rubble piles (instanced)
+    const rg=sph(.3,6,5), rm=std(0x2b2824,0.95,0); const N=40; const im=new THREE.InstancedMesh(rg,rm,N); const dm=new THREE.Object3D();
+    for(let i=0;i<N;i++){ dm.position.set(24+(Math.random()-.5)*22,.1+Math.random()*.15,(Math.random()-.5)*20); dm.scale.setScalar(.4+Math.random()*1.1); dm.rotation.set(Math.random()*3,Math.random()*3,0); dm.updateMatrix(); im.setMatrixAt(i,dm.matrix); }
+    im.instanceMatrix.needsUpdate=true; im.castShadow=true; im.receiveShadow=true; scene.add(im);
+  }
+
+  // ---- shell casings scattered on every floor (instanced, 1 draw call) ----
+  { const cg=cyl(.02,.02,.06,6), cm=std(0xb8860b,0.4,0.85); const N=110; const im=new THREE.InstancedMesh(cg,cm,N); const dm=new THREE.Object3D();
+    const centers=[[0,0,18],[0,-22,18],[0,22,18],[-24,0,22],[24,0,22]];
+    for(let i=0;i<N;i++){ const f=centers[i%centers.length]; dm.position.set(f[0]+(Math.random()-.5)*f[2],.03,f[1]+(Math.random()-.5)*f[2]); dm.rotation.set(Math.PI/2,0,Math.random()*6.28); dm.updateMatrix(); im.setMatrixAt(i,dm.matrix); }
+    im.instanceMatrix.needsUpdate=true; scene.add(im);
+  }
+}
 renderer.shadowMap.needsUpdate = true; // bake static shadows now that the map exists
 
 function buildMapNew(){
@@ -4238,6 +4339,7 @@ function loop(){
   ZOMBIES=ZOMBIES.filter(z=>!z.update(dt,PL.pos,now));
   updateParticles(dt);
   updateTracers(now);
+  updateDoorAnims(dt);
   if(PL.alive&&PL.health<PL.maxHealth&&now-PL.lastDamageTime>6000){
     PL.health=Math.min(PL.maxHealth,PL.health+3*dt);
     updateHUD();
