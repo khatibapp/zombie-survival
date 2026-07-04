@@ -2159,7 +2159,7 @@ function buildLayersV32(){
   flr(24,23,22,20,UY,std(0x1e1a16,.85,.05));
   par(24,33.3,22,T,UY); par(35.3,17,T,8,UY); par(35.3,29,T,8,UY); par(24,12.7,22,T,UY); par(13,32,T,2,UY); // E parapet w/ gap z21..25 -> sky bridge
   ptL(24,UY+3,23,0x8899cc,1.4,24);
-  for(const cz of [16,20]){ mesh(box(1.3,2.2,1.3),std(0x241f18,.7,.1),32,UY+1.1,cz); mesh(cyl(.5,.5,.6,10),std(0x141210,.6,.3),32,UY+2.3,cz); } // chimneys
+  for(const cz of [16,20]){ mesh(box(1.3,2.2,1.3),std(0x241f18,.7,.1),32,UY+1.1,cz); mesh(cyl(.5,.5,.6,10),std(0x141210,.6,.3),32,UY+2.3,cz); addCol(COLS,32,cz,.7,.7,UY); } // chimneys (solid)
   mesh(cyl(1.3,1.5,3,12),std(0x3a3a30,.5,.6),17,UY+1.5,29); addCol(COLS,17,29,1.5,1.5,UY);           // water tower
   for(let i=0;i<5;i++){ mesh(box(.9,.4,.5),std(0x5a5238,.9,.02),15+i*.7,UY+.2,14); }                 // sandbag nest
 
@@ -2725,6 +2725,10 @@ const mystLblTex=_mystData.lblTex;
 const mystLblMesh=_mystData.lblMesh;
 // Keep legacy refs for moveMysteryBox compatibility
 const mystBox=_mystData.bodyMesh; // used for position ref only
+// Solid collider for the box — ONE AABB that tracks the box through relocation (moveMysteryBox updates it).
+const _MYST_HALF=0.7; // box body footprint ~1.3-1.42 wide; blocks the player like a small crate (still buyable, range 2.4)
+const mystBoxCol={min:{x:-_MYST_HALF,z:28-_MYST_HALF},max:{x:_MYST_HALF,z:28+_MYST_HALF},fy:0};
+COLS.push(mystBoxCol);
 const mystBoxLid=mystLidGrp;      // lid group
 const mystLight=new THREE.PointLight(0xffee00,3.5,8);
 mystLight.position.set(0,2.5,28);scene.add(mystLight);
@@ -2746,6 +2750,9 @@ function moveMysteryBox(){
   mystLoc=pick.i;
   const p=pick.p;
   mystGrp.position.set(p.x,0,p.z);
+  // move the solid collider with the box so it stays solid at every relocation spot
+  mystBoxCol.min.x=p.x-_MYST_HALF; mystBoxCol.min.z=p.z-_MYST_HALF;
+  mystBoxCol.max.x=p.x+_MYST_HALF; mystBoxCol.max.z=p.z+_MYST_HALF;
   mystLight.position.set(p.x,2.5,p.z);
   // "box moved" light pillar at the new spot, visible across the map
   if(_movePillar){ _movePillar.position.set(p.x,5,p.z); _movePillar.visible=true; _movePillar.material.opacity=.2; _movePillarT=3; }
