@@ -1188,6 +1188,11 @@ const ROOMS={
   foyer:    {x0:-11,x1:11, z0:11, z1:33, fy:0, open:false},
   theater:  {x0:-37,x1:-11,z0:-11,z1:11, fy:0, open:false},
   courtyard:{x0:11, x1:37, z0:-11,z1:11, fy:0, open:false},
+  // v3.1 ground-floor expansion (visible new wings extending the footprint outward)
+  morgue:   {x0:-37,x1:-11,z0:-33,z1:-11,fy:0, open:false}, // NW, off the Theater's north wall
+  gallery:  {x0:-57,x1:-37,z0:-11,z1:11, fy:0, open:false}, // far W, off the Theater's west wall
+  chapel:   {x0:11, x1:35, z0:11, z1:37, fy:0, open:false}, // SE, off the Foyer's east wall
+  depot:    {x0:11, x1:37, z0:-33,z1:-11,fy:0, open:false}, // NE, off the Courtyard's north wall
 };
 function inOpenRoom(x,z,y){
   for(const k in ROOMS){ const r=ROOMS[k]; if(r.open && x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1 && (y===undefined||Math.abs(r.fy-y)<2.9)) return true; }
@@ -2352,7 +2357,7 @@ function buildMapNew(){
 
   // ===== FOYER (south) x-11..11 z11..33 =====
   flr(0,22,22,22,M.floor); cei(0,22,22,22);
-  wseg('x',33,-11,11,M.wall); wseg('z',-11,11,33,M.wall); wseg('z',11,11,33,M.wall);
+  wseg('x',33,-11,11,M.wall); wseg('z',-11,11,33,M.wall); wdoor('z',11,11,33,22,M.wall,'chapel',1750,'Chapel'); wseg('z',11,33,37,M.wall);
   chandelier(0,22); ptL(0,4,22,0xffc488,2.2,26);
   perkMachine(-9,31,0xdd1111,'Juggernog','jug');
   teleporterPad(8,30,0xffaa66);
@@ -2361,7 +2366,7 @@ function buildMapNew(){
 
   // ===== THEATER (west) x-37..-11 z-11..11 =====
   flr(-24,0,26,22,M.floor); cei(-24,0,26,22);
-  wseg('z',-37,-11,11,M.wall); wseg('x',11,-37,-11,M.wall); wseg('x',-11,-37,-11,M.wall);
+  wdoor('z',-37,-11,11,0,M.wall,'gallery',2000,'West Gallery'); wseg('x',11,-37,-11,M.wall); wdoor('x',-11,-37,-11,-24,M.wall,'morgue',1500,'Morgue');
   ptL(-24,4,0,0xff6644,2.2,28);
   mesh(box(22,.12,8),M.stageWood,-33,.06,0); // stage platform
   for(let i=0;i<18;i++){const fz=-9+i*1.05;const fold=new THREE.Mesh(cyl(.42,.42,H-.2,6,1,true,0,Math.PI),M.velvet);fold.position.set(-36.3,(H-.2)/2,fz);scene.add(fold);}
@@ -2374,12 +2379,52 @@ function buildMapNew(){
 
   // ===== COURTYARD (east) x11..37 z-11..11 =====
   flr(24,0,26,22,std(0x1a1814,.9,.05)); cei(24,0,26,22,std(0x05060a,.95,0));
-  wseg('z',37,-11,11,M.wall); wseg('x',11,11,37,M.wall); wseg('x',-11,11,37,M.wall);
+  wseg('z',37,-11,11,M.wall); wseg('x',11,11,37,M.wall); wdoor('x',-11,11,37,24,M.wall,'depot',1500,'Supply Depot');
   ptL(24,4,0,0x8899cc,1.9,28);
   perkMachine(14,-9,0x11dd11,'Stamin-Up','stam');
   perkMachine(34,-8,0xdd11aa,'PhD Flopper','phd');
   buySign(36.7,1.25,0,'x-','SPAS-12',1500,'#ff6644');
   pillar(20,-6);pillar(30,6);pillar(24,-8); crate(20,7);crate(32,-7);crate(31,6);
+
+  // ============ v3.1 GROUND-FLOOR EXPANSION — four new wings ============
+  // ===== MORGUE (NW) x-37..-11 z-33..-11 — enter from Theater's north wall =====
+  flr(-24,-22,26,22,std(0x101418,.5,.25)); cei(-24,-22,26,22);
+  wseg('x',-33,-37,-11,M.wall); wseg('z',-37,-33,-11,M.wall);
+  ptL(-24,3.6,-22,0x66ccaa,1.7,24);
+  for(let c=0;c<7;c++){ mesh(box(2.9,3.3,.5),std(0x3a4046,.35,.7),-34+c*3.4,1.7,-32.4);
+    const h=new THREE.Mesh(sph(.05,6,5),new THREE.MeshBasicMaterial({color:0x9fe8c8})); h.position.set(-34+c*3.4,1.7,-32.1); scene.add(h); }
+  for(const gz of [-18,-25]){ mesh(box(2,.12,.9),std(0x6a7076,.4,.6),-20,.95,gz); addCol(COLS,-20,gz,1.05,.5); mesh(box(1.8,.35,.7),std(0x8a3030,.5,.3),-20,1.2,gz); }
+  mesh(cyl(.02,.02,1.2,6),(M.brass||std(0x6a5320,.3,.9)),-24,H-.6,-22); { const l=new THREE.Mesh(sph(.32,10,8),new THREE.MeshBasicMaterial({color:0xdfffe8})); l.position.set(-24,H-1.2,-22); scene.add(l); }
+
+  // ===== WEST GALLERY (far W) x-57..-37 z-11..11 — enter from Theater's west wall =====
+  flr(-47,0,20,22,std(0x181410,.6,.15)); cei(-47,0,20,22);
+  wseg('z',-57,-11,11,M.wall); wseg('x',-11,-57,-37,M.wall); wseg('x',11,-57,-37,M.wall);
+  ptL(-47,3.6,0,0x8aa0cc,1.5,24);
+  for(const cz of [-6,6]){ mesh(cyl(.4,.46,2.6,12),(M.pillar||std(0x6a6258,.6,.1)),-42,1.3,cz); mesh(cyl(.4,.44,1.1,12),(M.pillar||std(0x6a6258,.6,.1)),-52,.55,cz); addCol(COLS,-42,cz,.5,.5); }
+  for(let i=0;i<10;i++){ const s=.4+((i*7)%5)*.14; mesh(box(s,s,s),std(0x3a352c,.8,.05),-50+(i%5)*1.4,s/2,-2+((i/5)|0)*2.2); }
+  { const beam=new THREE.Mesh(cyl(1.6,2.2,H,16,1,true),new THREE.MeshBasicMaterial({color:0xbcd0ff,transparent:true,opacity:.09,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending})); beam.position.set(-47,H/2,3); scene.add(beam); ptL(-47,H-.5,3,0xbcd0ff,1.4,15); }
+  mesh(box(.7,.7,2.4),std(0x565049,.7,.05),-54,.35,-7); addCol(COLS,-54,-7,.5,1.2);
+
+  // ===== CHAPEL (SE) x11..35 z11..37 — enter from Foyer's east wall =====
+  flr(23,24,24,26,std(0x14100c,.6,.1)); cei(23,24,24,26);
+  wseg('x',37,11,35,M.wall); wseg('z',35,11,37,M.wall);
+  ptL(23,3.8,24,0xffb060,1.8,26);
+  mesh(box(4,.6,1.6),std(0x2a2118,.6,.1),23,.3,34); mesh(box(2.4,1.0,.9),std(0x3a2e1e,.5,.1),23,.8,34); addCol(COLS,23,34,2.1,.9);
+  { const cm=(M.gilt||std(0xcaa64a,.35,.9)); const v=new THREE.Mesh(box(.16,1.4,.16),cm); v.position.set(23,2.3,34.4); scene.add(v); const hh=new THREE.Mesh(box(.7,.16,.16),cm); hh.position.set(23,2.55,34.4); scene.add(hh); }
+  for(let i=0;i<4;i++){ for(const px of [17,29]){ mesh(box(4,.5,.6),(M.velvet||std(0x5a1420,.6,.2)),px,.4,15+i*3.2); addCol(COLS,px,15+i*3.2,2,.35); } }
+  { const sg=new THREE.Mesh(box(.1,3,5),new THREE.MeshStandardMaterial({color:0x224488,emissive:0x3366cc,emissiveIntensity:.7,roughness:.3})); sg.position.set(34.7,2.2,24); scene.add(sg); ptL(33,2.4,24,0x6699ff,1.1,10); }
+  for(const cx of [19,27]) for(const cz of [20,28]){ mesh(cyl(.05,.06,.4,8),std(0xe8e0cc,.5,0),cx,.9,cz); const fl=new THREE.Mesh(sph(.04,5,4),new THREE.MeshBasicMaterial({color:0xffcf7a})); fl.position.set(cx,1.16,cz); scene.add(fl); }
+
+  // ===== SUPPLY DEPOT (NE) x11..37 z-33..-11 — enter from Courtyard's north wall =====
+  flr(24,-22,26,22,std(0x161310,.7,.08)); cei(24,-22,26,22);
+  wseg('x',-33,11,37,M.wall); wseg('z',37,-33,-11,M.wall);
+  ptL(24,3.6,-22,0xffd089,1.6,24);
+  crate(15,-30);crate(16.2,-30); mesh(box(1.1,1.1,1.1),M.crate,15.6,1.65,-30); crate(34,-30);crate(33,-28);
+  for(let i=0;i<3;i++){ mesh(box(.5,2,3),std(0x2a2c30,.4,.8),36,1,-26+i*4); addCol(COLS,36,-26+i*4,.4,1.5); }
+  mesh(box(2.4,1.1,5),std(0x3a3a30,.6,.5),24,.7,-20); addCol(COLS,24,-20,1.3,2.6);
+  mesh(box(2.2,1,1.8),std(0x2a2a22,.6,.4),24,1.4,-23);
+  for(const wz of [-17.5,-22.5]) for(const wx of [22.6,25.4]){ mesh(cyl(.5,.5,.4,12),std(0x0a0a0a,.8,.1),wx,.5,wz,0,0,Math.PI/2); }
+  for(let i=0;i<6;i++){ mesh(box(.9,.4,.5),std(0x5a5238,.9,.02),14+i*.6,.2+(i%2)*.4,-13.2); }
 }
 
 // ===== MYSTERY BOX =====
@@ -2389,6 +2434,9 @@ const MYSTERY_LOCS=[
   {x:0,z:-18},  // lab
   {x:-24,z:0},  // theater
   {x:24,z:0},   // courtyard
+  {x:23,z:22},  // chapel (SE wing)
+  {x:24,z:-24}, // supply depot (NE wing)
+  {x:-47,z:0},  // west gallery
 ];
 let mystLoc=0;
 // ===== MYSTERY BOX BUILD =====
@@ -4190,6 +4238,14 @@ const SPAWN_PTS=[
   {x:-24,z:-8},{x:-24,z:8},{x:-16,z:0},{x:-33,z:-4},{x:-33,z:4},
   // Courtyard (east)
   {x:26,z:-4},{x:26,z:6},{x:34,z:2},{x:16,z:4},{x:34,z:8},
+  // Morgue (NW wing)
+  {x:-30,z:-28},{x:-16,z:-28},{x:-24,z:-30},
+  // West Gallery (far W wing)
+  {x:-52,z:-6},{x:-52,z:6},{x:-44,z:0},
+  // Chapel (SE wing)
+  {x:16,z:32},{x:30,z:32},{x:23,z:34},
+  // Supply Depot (NE wing)
+  {x:16,z:-28},{x:32,z:-28},{x:24,z:-30},
   // Basement — Boiler Room (fy:-4.5, reached via Lab east stair)
   {x:0,z:-30,fy:-4.5},{x:-8,z:-24,fy:-4.5},{x:8,z:-24,fy:-4.5},
   // Upper — Projection Catwalk (fy:4.5, reached via Lab west stair)
