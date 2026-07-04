@@ -2016,6 +2016,7 @@ function buildMap(){
 const PERK_ORBS=[]; // global — animated in game loop
 buildMapNew(); // OLD buildMap() is intentionally NOT called — clean new layout, nothing old left behind
 buildFloorsV3();// v3: adds BASEMENT + UPPER floors, stairs, drop-through, skybox (real verticality)
+buildLayersV32();// Map-V2 Part 2: full basement + upper LAYERS (Cold Storage, Tunnel, Power Room, Balcony, Attic, Rooftop)
 phase1Assets(); // load real PBR textures + IBL + film-grade pass (now that materials M exist)
 dressMap();     // Phase 2: architectural trim + columns + per-room set-dressing (additive, no nav impact)
 
@@ -2037,7 +2038,9 @@ function buildFloorsV3(){
   ROOMS.boiler={x0:-11,x1:11,z0:-33,z1:-13,fy:BY,open:true,name:'Boiler Room'};
   HZ_FLAT.push({x0:-11,x1:11,z0:-33,z1:-13,fy:BY});
   flr(0,-23,22,20,BY,std(0x14100c,.92,.05)); cei(0,-23,22,20,BY);
-  wal(0,-33.3,22,T,BY); wal(-11.3,-23,T,20,BY); wal(11.3,-23,T,20,BY); wal(0,-12.7,22,T,BY);
+  wal(0,-33.3,22,T,BY); wal(11.3,-23,T,20,BY);
+  wal(-11.3,-29,T,8,BY); wal(-11.3,-16,T,6,BY);   // W wall w/ gap z-25..-19 -> Cold Storage
+  wal(-7,-12.7,8,T,BY); wal(7,-12.7,8,T,BY);       // S wall w/ gap x-3..3 -> Maintenance Tunnel
   ptL(0,BY+3.4,-23,0xff5a1e,2.2,20);
   mesh(box(4,4,3),std(0x1a1410,.7,.5),0,BY+2,-30); addCol(COLS,0,-30,2.2,1.7,BY);              // furnace landmark
   { const fg=new THREE.Mesh(box(1.3,1.7,.2),new THREE.MeshBasicMaterial({color:0xff6a00})); fg.position.set(0,BY+1.4,-28.4); scene.add(fg); }
@@ -2067,6 +2070,107 @@ function buildFloorsV3(){
   }
   // (spawn closets for these floors are added to the SPAWN_PTS literal directly — see below)
 }
+
+/*  ===== Map-V2 Part 2 — REAL VERTICAL LAYERS =====================================
+    BASEMENT (fy -4.5):  COLD STORAGE — BOILER — MAINT. TUNNEL — POWER ROOM  (4 zones, chained)
+    UPPER    (fy +4.5):  BALCONY — (west arm) — MEZZANINE BRIDGE — CATWALK ; BRIDGE — ATTIC — ROOFTOP
+    Stairs (5, different wings): Lab->Boiler[down], Lab->Catwalk[up], Foyer->Power[down],
+      Morgue->ColdStorage[down], Theater->Balcony[up, grand].  Debris ramp: ruined-W->Balcony.
+      Elevator-shaft ladder: Chapel->Rooftop.  Drop-through: Catwalk hole->Lab.
+    No floor is reachable from a single point.  getFloorH covered by HZ_FLAT/HZ_RAMP below.  */
+function buildLayersV32(){
+  const H=4.2,T=0.45,BY=-4.5,UY=4.5;
+  const flr=(cx,cz,w,d,y,mat)=>{const m=new THREE.Mesh(box(w,.3,d),mat||M.floor);m.position.set(cx,y-.15,cz);m.receiveShadow=true;scene.add(m);WORLD_HIT.push(m);};
+  const cei=(cx,cz,w,d,y,mat)=>{const m=new THREE.Mesh(box(w,.2,d),mat||M.ceil);m.position.set(cx,y+H,cz);scene.add(m);};
+  const wal=(x,z,w,d,fy)=>{mesh(box(w,H,d),M.wall,x,fy+H/2,z);addCol(COLS,x,z,w/2+.02,d/2+.02,fy);};
+  const rail=(x,z,w,d,fy)=>{mesh(box(w,.95,d),std(0x2e3237,.5,.6),x,fy+.48,z);}; // visual rail over a void (no collider)
+  const par=(x,z,w,d,fy)=>{mesh(box(w,1.2,d),std(0x2a2620,.7,.08),x,fy+.6,z);addCol(COLS,x,z,w/2+.02,d/2+.02,fy);}; // solid parapet
+  // stair: HZ_RAMP + spanning open stairwell ROOM (fy=mid, so inOpenRoom stays true through the descent) + step meshes
+  const stair=(key,x0,x1,zA,zB,yA,yB)=>{
+    // getFloorH requires z0<z1 — normalize so the ramp direction is preserved regardless of walk direction
+    const z0=Math.min(zA,zB), z1=Math.max(zA,zB), y0=(zA<=zB)?yA:yB, y1=(zA<=zB)?yB:yA;
+    HZ_RAMP.push({x0,x1,z0,z1,y0,y1,axis:'z'});
+    ROOMS[key]={x0:x0-.25,x1:x1+.25,z0:z0-.2,z1:z1+.2,fy:(yA+yB)/2,open:true,name:'Stairwell'};
+    const n=11,cx=(x0+x1)/2,wide=(x1-x0)+.15,seg=Math.abs(zB-zA)/n;
+    for(let i=0;i<n;i++){ const t=(i+.5)/n, z=zA+(zB-zA)*t, y=yA+(yB-yA)*t; mesh(box(wide,.16,seg+.06),std(0x2a2620,.8,.1),cx,y-.08,z); }
+  };
+
+  // ============ BASEMENT LAYER (fy -4.5) ============
+  // Cold Storage (under the Morgue; east side opens to the Boiler via its punched W gap)
+  ROOMS.coldstore={x0:-33,x1:-11,z0:-31,z1:-15,fy:BY,open:true,name:'Cold Storage'};
+  HZ_FLAT.push({x0:-33,x1:-11,z0:-31,z1:-15,fy:BY});
+  flr(-22,-23,22,16,BY,std(0x121a1e,.4,.15)); cei(-22,-23,22,16,BY);
+  wal(-33.3,-23,T,16,BY); wal(-22,-31.3,22,T,BY); wal(-22,-14.7,22,T,BY);
+  ptL(-22,BY+3.2,-23,0x88c0d0,1.5,20);
+  for(let c=0;c<6;c++){ mesh(box(3,1.3,.5),std(0x2e3a40,.4,.6),-31+c*3.6,BY+.75,-30.4); }         // freezer racks
+  for(const sx of [-28,-22,-16]){ const sh=new THREE.Mesh(box(1.0,1.8,.08),new THREE.MeshStandardMaterial({color:0xb8c0c4,roughness:.8})); sh.position.set(sx,BY+1.5,-21); scene.add(sh); } // hanging shrouds
+  { const w=new THREE.Mesh(box(21,.03,15),new THREE.MeshStandardMaterial({color:0x0c1a1e,transparent:true,opacity:.35,roughness:.1,metalness:.3})); w.position.set(-22,BY+.3,-23); scene.add(w); }
+
+  // Maintenance Tunnel (spine: Boiler S-gap  <->  Power Room N-gap)
+  ROOMS.tunnel={x0:-3,x1:3,z0:-13,z1:13,fy:BY,open:true,name:'Maintenance Tunnel'};
+  HZ_FLAT.push({x0:-3,x1:3,z0:-13,z1:13,fy:BY});
+  flr(0,0,6,26,BY,std(0x0e0c0a,.8,.05)); cei(0,0,6,26,BY);
+  wal(-3.3,0,T,26,BY); wal(3.3,0,T,26,BY);
+  ptL(0,BY+2.6,-6,0x9a7a4a,.9,13); ptL(0,BY+2.6,6,0x9a7a4a,.9,13);
+  for(const px of [-2.5,2.5]){ mesh(cyl(.14,.14,25,8),std(0x3a352c,.6,.5),px,BY+2.9,0,Math.PI/2); }   // pipes along Z
+  for(let i=0;i<5;i++){ mesh(box(.5,.5,.12),std(0x241f18,.7,.2),0,BY+2.4,-10+i*5); }
+
+  // Power Room (under the Foyer; the breaker/lever the Power Switch needs is built in livingAtmosphere at z27.6)
+  ROOMS.powerroom={x0:-11,x1:11,z0:13,z1:29,fy:BY,open:true,name:'Power Room'};
+  HZ_FLAT.push({x0:-11,x1:11,z0:13,z1:29,fy:BY});
+  flr(0,21,22,16,BY,std(0x14120e,.6,.1)); cei(0,21,22,16,BY);
+  wal(-11.3,21,T,16,BY); wal(11.3,21,T,16,BY); wal(0,29.3,22,T,BY);
+  wal(-7,12.7,8,T,BY); wal(7,12.7,8,T,BY);                                    // N wall w/ gap x-3..3 -> tunnel
+  ptL(0,BY+3,20,0xffb070,1.6,20);
+  for(const gx of [-7,7]){ mesh(box(2,2.4,3),std(0x2a2c30,.4,.7),gx,BY+1.2,23); addCol(COLS,gx,23,1.1,1.6,BY); mesh(box(1.6,.3,2.4),M.gilt,gx,BY+2.5,23); } // generators
+
+  // ============ UPPER LAYER (fy +4.5) ============
+  // Balcony over the 2-story Grand Theater (north + west strips, railed toward the open void)
+  ROOMS.balcony ={x0:-53,x1:-11,z0:-10,z1:-6,fy:UY,open:true,name:'Balcony'}; HZ_FLAT.push({x0:-53,x1:-11,z0:-10,z1:-6,fy:UY});
+  ROOMS.balconyW={x0:-53,x1:-49,z0:-6, z1:8, fy:UY,open:true,name:'Balcony'}; HZ_FLAT.push({x0:-53,x1:-49,z0:-6,z1:8,fy:UY});
+  flr(-32,-8,42,4,UY,std(0x1a1512,.6,.2)); flr(-51,1,4,14,UY,std(0x1a1512,.6,.2));
+  rail(-32,-6,42,T,UY); rail(-49,1,T,14,UY);
+  ptL(-32,UY+3,-8,0xffa060,1.5,26);
+  for(const rx of [-42,-28,-16]){ mesh(box(.5,.5,.6),std(0x14161a,.4,.6),rx,UY+.35,-7); mesh(cyl(.22,.3,.4,10),M.gilt,rx,UY+.05,-6.4,Math.PI/2); }
+
+  // West-arm walkway: Balcony <-> Mezzanine Bridge
+  ROOMS.upwalkW={x0:-11,x1:-5,z0:-9,z1:-5,fy:UY,open:true,name:'Walkway'}; HZ_FLAT.push({x0:-11,x1:-5,z0:-9,z1:-5,fy:UY});
+  flr(-8,-7,6,4,UY,std(0x1a1a1e,.6,.3)); rail(-8,-9,6,T,UY);
+
+  // Grand Mezzanine Bridge over the Atrium: Catwalk (z-13) <-> Attic (z13)
+  ROOMS.bridge={x0:-5,x1:5,z0:-13,z1:13,fy:UY,open:true,name:'Mezzanine'}; HZ_FLAT.push({x0:-5,x1:5,z0:-13,z1:13,fy:UY});
+  flr(0,0,10,26,UY,std(0x1a1a1e,.6,.3)); rail(-5.2,0,T,26,UY); rail(5.2,0,T,26,UY);
+  ptL(0,UY+3,0,0xffc488,1.6,22);
+
+  // Attic over the Foyer (roof-hole moonlight shaft), extends east to x13 to meet the Rooftop
+  ROOMS.attic={x0:-11,x1:13,z0:13,z1:31,fy:UY,open:true,name:'Attic'}; HZ_FLAT.push({x0:-11,x1:13,z0:13,z1:31,fy:UY});
+  flr(1,22,24,18,UY,std(0x181410,.7,.1)); cei(1,22,24,18,UY);
+  wal(-11.3,22,T,18,UY); wal(1,31.3,24,T,UY);
+  wal(13.3,16,T,6,UY); wal(13.3,29,T,4,UY);                                   // E wall w/ gap z19..27 -> Rooftop hatch
+  ptL(0,UY+3,22,0x9aa6c8,1.3,22);
+  { const beam=new THREE.Mesh(cyl(1.4,2.0,H,16,1,true),new THREE.MeshBasicMaterial({color:0xbcd0ff,transparent:true,opacity:.09,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending})); beam.position.set(-6,UY+H/2,26); scene.add(beam); ptL(-6,UY+H-.4,26,0xbcd0ff,1.3,14); }
+  for(const tz of [17,27]){ mesh(box(1.4,.9,.9),std(0x2a2118,.6,.1),9,UY+.45,tz); addCol(COLS,9,tz,.8,.5,UY); }
+  mesh(cyl(1.1,1.1,2.4,14),std(0x2a2c30,.4,.7),-8,UY+1.2,15); addCol(COLS,-8,15,1.2,1.2,UY);       // water tank
+
+  // Rooftop over the Chapel (open sky) — Part 4 adds the plank bridge to a bell tower
+  ROOMS.rooftop={x0:13,x1:35,z0:13,z1:33,fy:UY,open:true,name:'Rooftop'}; HZ_FLAT.push({x0:13,x1:35,z0:13,z1:33,fy:UY});
+  flr(24,23,22,20,UY,std(0x1e1a16,.85,.05));
+  par(24,33.3,22,T,UY); par(35.3,23,T,20,UY); par(24,12.7,22,T,UY); par(13,32,T,2,UY);              // parapets (west x13 = attic wall/gap)
+  ptL(24,UY+3,23,0x8899cc,1.4,24);
+  for(const cz of [16,20]){ mesh(box(1.3,2.2,1.3),std(0x241f18,.7,.1),32,UY+1.1,cz); mesh(cyl(.5,.5,.6,10),std(0x141210,.6,.3),32,UY+2.3,cz); } // chimneys
+  mesh(cyl(1.3,1.5,3,12),std(0x3a3a30,.5,.6),17,UY+1.5,29); addCol(COLS,17,29,1.5,1.5,UY);           // water tower
+  for(let i=0;i<5;i++){ mesh(box(.9,.4,.5),std(0x5a5238,.9,.02),15+i*.7,UY+.2,14); }                 // sandbag nest
+
+  // ============ CONNECTIONS ============
+  stair('stFoyer', -9,-5, 13,21, 0,BY);       // Foyer  -> Power Room   (DOWN)  [Foyer wing]
+  stair('stMorgue',-16,-12, -19,-27, 0,BY);   // Morgue -> Cold Storage (DOWN)  [Morgue wing]
+  stair('stTheat', -20,-14, 2,-6, 0,UY);      // Theater-> Balcony      (UP, grand) [Theater wing]
+  stair('stDebris',-53,-49, 8,0, 0,UY);       // ruined-W rubble ramp -> Balcony (UP)
+  stair('stElev',  30,34, 26,32, 0,UY);       // Chapel elevator shaft -> Rooftop (UP)
+  for(let i=0;i<7;i++){ const t=i/7; mesh(box(1.2,.5,1.0),std(0x3a352c,.85,.03),-51,UY*t+.1,8-t*8); } // debris ramp chunks
+  for(const ex of [29.4,34.6]) for(const ez of [25.4,32.6]){ mesh(cyl(.08,.08,UY+1.2,8),std(0x2a2c30,.4,.8),ex,UY/2,ez); } // shaft cage posts
+  for(let i=0;i<9;i++){ mesh(box(1.0,.05,.12),std(0x3a3d42,.5,.7),32,i*.55,25.6); }                   // ladder rungs
+}
 // livingAtmosphere() is called near loop() — after ALL its globals (POWER_ON, mystGrp, ...) exist.
 
 // ===================== PHASE 3+4: LIVING ATMOSPHERE + SPECTACLE =====================
@@ -2090,11 +2194,13 @@ function setPower(on){
 function livingAtmosphere(){
   // --- emergency red lights (on until power) ---
   for(const s of [[0,0],[0,-22],[0,22],[-24,0],[24,0]]){ const l=new THREE.PointLight(0xff2a12,1.3,17); l.position.set(s[0],3.4,s[1]); scene.add(l); _EMERGENCY.push(l); }
-  // --- power switch panel (lab west wall, x=-11 @ z=-30) ---
-  { const px=-10.7,pz=-30, mt=std(0x14161a,.5,.6);
-    const panel=new THREE.Mesh(box(.5,.72,.26),mt); panel.position.set(px,1.4,pz); panel.castShadow=true; scene.add(panel);
-    _powerLever=new THREE.Mesh(box(.06,.3,.06),std(0x8a2a2a,.4,.6)); _powerLever.position.set(px+.16,1.35,pz); _powerLever.rotation.z=.6; scene.add(_powerLever);
-    _powerLED=new THREE.Mesh(sph(.05,8,6),new THREE.MeshBasicMaterial({color:0xff2200})); _powerLED.position.set(px,1.72,pz-.14); scene.add(_powerLED);
+  // --- power switch: main breaker in the BASEMENT Power Room (x0,z28 @ fy-4.5); requires a cellar run ---
+  { const px=0,pz=27.6,py=-4.5, mt=std(0x14161a,.5,.6);
+    // breaker cabinet + flanking fuse boxes on the south wall
+    const panel=new THREE.Mesh(box(1.2,1.5,.3),mt); panel.position.set(px,py+1.3,pz); panel.castShadow=true; scene.add(panel);
+    mesh(box(.5,1.1,.28),std(0x0e1013,.5,.7),px-1.0,py+1.2,pz); mesh(box(.5,1.1,.28),std(0x0e1013,.5,.7),px+1.0,py+1.2,pz);
+    _powerLever=new THREE.Mesh(box(.09,.42,.09),std(0x8a2a2a,.4,.6)); _powerLever.position.set(px+.28,py+1.25,pz-.18); _powerLever.rotation.z=.6; scene.add(_powerLever);
+    _powerLED=new THREE.Mesh(sph(.06,8,6),new THREE.MeshBasicMaterial({color:0xff2200})); _powerLED.position.set(px-.3,py+1.7,pz-.18); scene.add(_powerLED);
   }
   // --- hidden gramophones (music easter egg) ---
   for(const gp of [[-35,-8],[10,32],[36,8]]){
@@ -2965,7 +3071,7 @@ const INTERACTABLES=[
   // ---- mystery box (starts in foyer) + pack-a-punch (lab) ----
   {type:'mystery',x:0,z:28,range:2.4,cost:950,label:'Mystery Box'},
   {type:'pap',x:0,z:-30.4,range:2.6,cost:2500,label:'Pack-a-Punch'},
-  {type:'power',x:-10.4,z:-30,range:2.4,cost:1500,label:'Power Switch'},
+  {type:'power',x:0,z:26,range:2.6,cost:1500,label:'Power Switch',fy:-4.5}, // basement Power Room (requires a cellar run)
   {type:'gramophone',x:-35,z:-8,range:2.2,gid:0,label:'Gramophone'},
   {type:'gramophone',x:10, z:32,range:2.2,gid:1,label:'Gramophone'},
   {type:'gramophone',x:36, z:8, range:2.2,gid:2,label:'Gramophone'},
@@ -3666,15 +3772,17 @@ function doInteract(){
   interactCD=true;setTimeout(()=>{interactCD=false;},500);
   for(const d of DOOR_LIST){
     if(d.open)continue;
+    if(Math.abs((d.fy||0)-PL.pos.y)>2.6) continue; // floor-aware
     const dist=Math.hypot(d.x-PL.pos.x,d.z-PL.pos.z);
     if(dist<d.range){
       if(PL.points<d.cost){flashMsg('Not enough points!');return;}
       PL.points-=d.cost;openDoor(d);updateHUD();return;
     }
   }
-  const px=PL.pos.x,pz=PL.pos.z;
+  const px=PL.pos.x,pz=PL.pos.z,py=PL.pos.y;
   let near=null,nd=Infinity;
   for(const it of INTERACTABLES){
+    if(Math.abs((it.fy||0)-py)>2.6) continue; // floor-aware: must be on the interactable's floor
     const d=Math.hypot(it.x-px,it.z-pz);
     if(d<it.range&&d<nd){near=it;nd=d;}
   }
@@ -4295,8 +4403,16 @@ const SPAWN_PTS=[
   {x:-18,z:-36},{x:18,z:-36},{x:0,z:-37},
   // Basement — Boiler Room (fy:-4.5, reached via Lab east stair)
   {x:0,z:-30,fy:-4.5},{x:-8,z:-24,fy:-4.5},{x:8,z:-24,fy:-4.5},
+  // Basement — Cold Storage
+  {x:-28,z:-24,fy:-4.5},{x:-16,z:-28,fy:-4.5},
+  // Basement — Power Room
+  {x:-6,z:24,fy:-4.5},{x:6,z:24,fy:-4.5},
   // Upper — Projection Catwalk (fy:4.5, reached via Lab west stair)
   {x:0,z:-24,fy:4.5},{x:-8,z:-18,fy:4.5},{x:8,z:-18,fy:4.5},
+  // Upper — Balcony / Attic / Rooftop
+  {x:-40,z:-8,fy:4.5},{x:-20,z:-8,fy:4.5},
+  {x:0,z:22,fy:4.5},{x:8,z:26,fy:4.5},
+  {x:20,z:22,fy:4.5},{x:30,z:26,fy:4.5},
 ];
 
 function activeSpawns(){
@@ -4456,14 +4572,16 @@ function updateWSlots(){
 
 let nearPrompt=false;
 function updatePrompt(){
-  const px=PL.pos.x,pz=PL.pos.z;
+  const px=PL.pos.x,pz=PL.pos.z,py=PL.pos.y;
   let near=null,nd=Infinity;
   for(const d of DOOR_LIST){
     if(d.open)continue;
+    if(Math.abs((d.fy||0)-py)>2.6) continue; // floor-aware
     const dist=Math.hypot(d.x-px,d.z-pz);
     if(dist<d.range&&dist<nd){near={type:'door',label:d.label,cost:d.cost,x:d.x,z:d.z};nd=dist;}
   }
   for(const it of INTERACTABLES){
+    if(Math.abs((it.fy||0)-py)>2.6) continue; // floor-aware
     const d=Math.hypot(it.x-px,it.z-pz);
     if(d<it.range&&d<nd){near=it;nd=d;}
   }
