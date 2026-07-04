@@ -2784,6 +2784,24 @@ function spawnTracer(from,to,pap){
 }
 function updateTracers(now){ for(const t of _tracers) if(t.ln.visible&&now>t.off) t.ln.visible=false; }
 
+// ===== Phase 5: weapon FX (casings, smoke, impacts) — reuse the PARTICLES system =====
+const _casingGeo=cyl(.014,.014,.05,5), _casingMat=std(0xc8961b,0.4,0.85);
+function spawnCasing(x,y,z,right){
+  if(PARTICLES.length>190) return;
+  const m=new THREE.Mesh(_casingGeo,_casingMat); m.position.set(x,y,z); m.rotation.set(Math.random()*3,Math.random()*3,0);
+  PARTICLES.push({m,vx:right.x*1.6+(Math.random()-.5),vy:1.1+Math.random()*.6,vz:right.z*1.6+(Math.random()-.5),life:0,ttl:1.1});
+  scene.add(m);
+}
+function spawnSmoke(x,y,z){
+  if(PARTICLES.length>190) return;
+  for(let i=0;i<3;i++){ const m=new THREE.Mesh(_bloodGeo,new THREE.MeshBasicMaterial({color:0x9a938a,transparent:true,opacity:.28,depthWrite:false})); m.scale.setScalar(.06+Math.random()*.05); m.position.set(x,y,z); PARTICLES.push({m,vx:(Math.random()-.5)*.3,vy:.7+Math.random()*.5,vz:(Math.random()-.5)*.3,life:0,ttl:.45}); scene.add(m); }
+}
+function spawnImpact(pt,spark){
+  if(PARTICLES.length>185) return;
+  const col=spark?0xffaa33:0x9a8f7c;
+  for(let i=0;i<(spark?5:4);i++){ const m=new THREE.Mesh(_bloodGeo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.9,depthWrite:false})); m.scale.setScalar(.015+Math.random()*.03); m.position.set(pt.x,pt.y,pt.z); PARTICLES.push({m,vx:(Math.random()-.5)*(spark?3:1.4),vy:.4+Math.random()*(spark?1.6:.8),vz:(Math.random()-.5)*(spark?3:1.4),life:0,ttl:spark?.35:.5}); scene.add(m); }
+}
+
 // ===== INTERACTABLES =====
 const INTERACTABLES=[
   // ---- wall weapons (match the buySign visuals in buildMapNew) ----
@@ -2851,6 +2869,7 @@ gunFill.position.set(-0.2, -0.05, 0.1);
 CAM.add(gunFill);
 let currentGunMesh=null;
 let gunRecoil=0;
+let _swayX=0,_swayY=0,_sprintTilt=0,_adsPose=0,_prevYaw,_prevPitch,_bobPhase=0;
 let mfTimer=0;
 // Knife animation
 let knifeAnimT=-1; // -1 = idle, 0-1 = animating
@@ -3092,6 +3111,10 @@ function doShoot(){
   PL.pitch=Math.max(-1.47,Math.min(1.47,PL.pitch));
   mfTimer=now;mfMesh.visible=true;mfLight.intensity=w.pap?10:6;
   if(w.pap) mfLight.color.setHex(0xff1100); else mfLight.color.setHex(0xffaa00);
+  // Phase 5: eject a casing + muzzle smoke
+  const _rt=new THREE.Vector3(1,0,0).applyQuaternion(CAM.quaternion);
+  const _mz=CAM.position.clone().add(new THREE.Vector3(0.2,-0.12,-0.6).applyQuaternion(CAM.quaternion));
+  spawnCasing(_mz.x,_mz.y+.05,_mz.z,_rt); spawnSmoke(_mz.x,_mz.y,_mz.z);
   updateHUD();
 
   const spreadScale=PL.perks.has('deadshot')?.4:1;
@@ -3131,6 +3154,8 @@ function doShoot(){
         const h=hits[0];
         const wn=h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
         spawnBulletHole(h.point,wn);
+        const metallic=!!(h.object.material && h.object.material.metalness>0.5); // sparks on metal, dust otherwise
+        spawnImpact(h.point,metallic);
       }
     }
   }
@@ -4380,9 +4405,25 @@ function loop(){
     currentGunMesh.position.y=-.18-dip*.12;
     currentGunMesh.position.z=-.1+gunRecoil*.28;
   } else if(currentGunMesh){
-    currentGunMesh.position.z=-.1+gunRecoil*.28;
-    currentGunMesh.rotation.x=gunRecoil*1.1;
-    currentGunMesh.position.y=-.18;
+    // Procedural sway (mouse-look lag + overshoot), sprint tilt, walk bob
+    const dyaw=(_prevYaw===undefined?0:PL.yaw-_prevYaw), dpit=(_prevPitch===undefined?0:PL.pitch-_prevPitch);
+    _prevYaw=PL.yaw; _prevPitch=PL.pitch;
+    const k=Math.min(1,dt*9);
+    _swayX += (-dyaw*3.0 - _swayX)*k;
+    _swayY += ( dpit*3.0 - _swayY)*k;
+    _sprintTilt += ((PL.sprinting?1:0) - _sprintTilt)*Math.min(1,dt*6);
+    _adsPose += ((adsHeld?1:0) - _adsPose)*Math.min(1,dt*10);
+    const moving=(Math.abs(PL.vel.x)+Math.abs(PL.vel.z))>0.5;
+    if(moving) _bobPhase += dt*(PL.sprinting?11:7);
+    const bob=moving?Math.sin(_bobPhase)*0.012*(PL.sprinting?1.6:1):0;
+    const bobY=moving?Math.abs(Math.sin(_bobPhase))*0.01:0;
+    const ax=_adsPose; // 0..1 ADS
+    currentGunMesh.position.x=(0.2)*(1-ax*0.86) + _swayX*0.09 + bob;
+    currentGunMesh.position.y=(-0.18)*(1-ax*0.18) + _swayY*0.06 - _sprintTilt*0.05 - bobY - ax*0.02;
+    currentGunMesh.position.z=-0.1 + gunRecoil*0.28 - ax*0.06;
+    currentGunMesh.rotation.x=gunRecoil*1.1 + _sprintTilt*0.4 + _swayY*0.3;
+    currentGunMesh.rotation.y=-_swayX*0.5;
+    currentGunMesh.rotation.z=_swayX*0.6 + _sprintTilt*0.5;
   }
   if(mfMesh.visible&&now-mfTimer>55){mfMesh.visible=false;mfLight.intensity=0;}
   if(now-hmTimer>170)document.querySelectorAll(".xl").forEach(l=>l.style.background="rgba(255,255,255,.9)");
