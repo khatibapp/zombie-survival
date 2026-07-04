@@ -764,11 +764,18 @@ function SFX_spatial(type, wx, wz) {
   } catch(e) {}
 }
 
-// ---- Renderer ----
-const renderer = new THREE.WebGLRenderer({ antialias: false });
+// ---- Renderer (cinematic: AA, shadows, ACES tonemap, sRGB) ----
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(1);
-renderer.shadowMap.enabled = false;
+renderer.setPixelRatio(1); // never supersample — key perf guard on high-res/ultrawide displays
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// Only static architecture casts shadows -> bake once, don't recompute every frame (big perf win).
+renderer.shadowMap.autoUpdate = false;
+renderer.shadowMap.needsUpdate = true;
+if('outputEncoding' in renderer) renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.4;
 document.body.insertBefore(renderer.domElement, document.body.firstChild);
 
 window.addEventListener('resize', () => {
@@ -779,44 +786,68 @@ window.addEventListener('resize', () => {
 
 // ---- Scene & Camera ----
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x070a07, 14, 46);
+// Warm, smoky theater haze — extended for the larger map
+scene.fog = new THREE.Fog(0x0a0709, 12, 64);
 
-const CAM = new THREE.PerspectiveCamera(SETTINGS.fov, innerWidth/innerHeight, 0.05, 120);
+const CAM = new THREE.PerspectiveCamera(SETTINGS.fov, innerWidth/innerHeight, 0.05, 160);
 scene.add(CAM);
 
-// ---- Lighting ----
-// Sunlight streaming through windows
-const sun = new THREE.DirectionalLight(0xfff4cc, 1.8);
-sun.position.set(8, 14, 6);
-sun.castShadow = false;
+// ---- Lighting (Kino der Toten: moonlight + warm chandeliers) ----
+// Cold moonlight raking down through the shattered roof — the one shadow-caster
+const sun = new THREE.DirectionalLight(0xaebedd, 1.35);
+sun.position.set(14, 26, 18);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 90;
+sun.shadow.camera.left = -55; sun.shadow.camera.right = 55;
+sun.shadow.camera.top = 55; sun.shadow.camera.bottom = -55;
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.02;
 scene.add(sun);
+scene.add(sun.target);
 
-scene.add(new THREE.AmbientLight(0x554422, 2.2));
-scene.add(new THREE.HemisphereLight(0x443322, 0x111108, 0.8));
+scene.add(new THREE.AmbientLight(0x3a3040, 1.0));
+scene.add(new THREE.HemisphereLight(0x4a3a5a, 0x100c0a, 0.8));
 
-function ptL(x,y,z,col,i,d){
+function ptL(x,y,z,col,i,d,shadow){
   const l=new THREE.PointLight(col,i,d);
-  l.position.set(x,y,z);l.castShadow=false;scene.add(l);return l;
+  l.position.set(x,y,z);
+  if(shadow){l.castShadow=true;l.shadow.mapSize.set(1024,1024);l.shadow.bias=-0.0006;l.shadow.camera.far=d;}
+  scene.add(l);return l;
 }
-ptL(0,3.8,0,0xff4400,1.5,18);
-ptL(-12,3,0,0x0022ff,.8,10);
-ptL(12,3,0,0xff0011,.8,10);
-ptL(-12,3,-30,0x220033,.9,10);
-ptL(12,3,-30,0x003311,.7,10);
-ptL(0,3,-40,0x111144,1.2,12);
+// Warm chandelier pools through the auditorium + foyer, cold accents backstage
+ptL(0,4.2,2,0xffb066,2.2,26,true);
+ptL(-13,4,4,0xffa050,1.2,16);
+ptL(13,4,4,0xffa050,1.2,16);
+ptL(0,4.2,-20,0xff5533,1.6,20);      // stage footlight wash
+ptL(-10,3.6,-30,0x6a4aff,1.0,16);    // backstage cold
+ptL(10,3.6,-30,0x33ccaa,0.9,16);
+ptL(0,4,18,0xffc488,1.4,20);         // foyer
 
 // ---- Materials ----
 function phong(col,spec=0x222222,shin=20,emissive=0){
   return new THREE.MeshPhongMaterial({color:col,specular:spec,shininess:shin,emissive});
 }
+// PBR helper for realistic surfaces
+function std(col,rough=0.9,metal=0.0,emissive=0,ei=1){
+  const m=new THREE.MeshStandardMaterial({color:col,roughness:rough,metalness:metal,emissive});
+  if(emissive) m.emissiveIntensity=ei;
+  return m;
+}
 const M={
-  floor:   phong(0x1e1510,0x111111,5),
-  ceil:    phong(0x0e0c10,0x000000,2),
-  wall:    phong(0x2a1e12,0x181210,8),
-  wall2:   phong(0x181e10,0x101410,6),
-  wall3:   phong(0x12181e,0x101014,6),
-  crate:   phong(0x3a2a15,0x222010,12),
-  pillar:  phong(0x221810,0x111008,8),
+  floor:   std(0x171319,0.8,0.08),        // dark marble / parquet
+  ceil:    std(0x0c0a10,0.95,0.0),         // painted plaster ceiling
+  wall:    std(0x2c2330,0.9,0.02),         // decayed plaster
+  wall2:   std(0x261b28,0.9,0.02),
+  wall3:   std(0x1d1624,0.92,0.02),
+  crate:   std(0x3a2a15,0.8,0.03),
+  pillar:  std(0x2a2432,0.7,0.1),          // marble column
+  velvet:  std(0x540c11,0.95,0.0,0x180203,0.5), // red curtains & seats
+  gilt:    std(0x8a6a2a,0.35,0.9,0x1a1200,0.35),// gold leaf trim
+  brass:   std(0x6a5320,0.3,0.95,0x120c00,0.2),
+  stageWood:std(0x281a11,0.8,0.05),        // stage boards
+  marble:  std(0x352b3a,0.35,0.15),        // polished marble accents
   bwallA:  phong(0x1a2a4a,0x1a2a4a,30,0x05101f),
   bwallB:  phong(0x2a1a3a,0x1a1030,30,0x100520),
   perkJ:   phong(0xdd1111,0xaa2222,40,0x440000),
@@ -827,9 +858,9 @@ const M={
   perkDS:  phong(0xddaa11,0xaa8822,40,0x443300),
   perkMK:  phong(0x33bb33,0x228822,40,0x004400),
   mystery: phong(0xddcc33,0xbbaa22,50,0x222200),
-  door:    phong(0x554433,0x333222,15),
-  wwall:   phong(0xbbaa88,0x665544,20),// window frame
-  glass:   new THREE.MeshPhongMaterial({color:0x88aacc,transparent:true,opacity:.3,shininess:100}),
+  door:    std(0x2a1c12,0.7,0.06),         // carved dark wood
+  wwall:   std(0x3a2f24,0.55,0.25),         // gilt window frame
+  glass:   new THREE.MeshStandardMaterial({color:0x2a3340,transparent:true,opacity:.22,roughness:.05,metalness:0}),
 };
 
 // ================= PROCEDURAL TEXTURES (map + normal maps) =================
@@ -959,16 +990,20 @@ const TEX={};
   })();
 
   // ---- Apply textures to the map materials (tinted so detail reads) ----
-  function P(mat,map,nrm,ns,color){if(color!==undefined)mat.color.setHex(color);mat.map=map;if(nrm){mat.normalMap=nrm;mat.normalScale=new THREE.Vector2(ns,ns);}mat.needsUpdate=true;}
-  P(M.floor ,TEX.floor,TEX.floorN,.8,0x9a8f7c);
-  P(M.ceil  ,TEX.ceil ,TEX.ceilN ,.6,0x39352e);
-  P(M.wall  ,TEX.wall ,TEX.wallN ,.9,0xa89880);
-  P(M.wall2 ,TEX.wall ,TEX.wallN ,.9,0x93a086);
-  P(M.wall3 ,TEX.wall ,TEX.wallN ,.9,0x8a98a8);
-  P(M.crate ,TEX.wood ,TEX.woodN ,.7,0xb0894f);
-  P(M.pillar,TEX.wall ,TEX.wallN ,.9,0x8f857a);
-  P(M.door  ,TEX.wood ,TEX.woodN ,.7,0x9c7c4c);
-  P(M.wwall ,TEX.metal,TEX.metalN,.5,0xb9a888);
+  function P(mat,map,nrm,ns,color){if(color!==undefined)mat.color.setHex(color);if(map){map.encoding=THREE.sRGBEncoding;mat.map=map;}if(nrm){mat.normalMap=nrm;mat.normalScale=new THREE.Vector2(ns,ns);}mat.needsUpdate=true;}
+  P(M.floor ,TEX.floor,TEX.floorN,.9,0x6a5f70);   // dark marble
+  P(M.ceil  ,TEX.ceil ,TEX.ceilN ,.6,0x2a2630);
+  P(M.wall  ,TEX.wall ,TEX.wallN ,1.0,0x6e5c74);   // decayed plaster (mauve)
+  P(M.wall2 ,TEX.wall ,TEX.wallN ,1.0,0x5c4a5e);
+  P(M.wall3 ,TEX.wall ,TEX.wallN ,1.0,0x4e4258);
+  P(M.crate ,TEX.wood ,TEX.woodN ,.8,0x8a6a3c);
+  P(M.pillar,TEX.wall ,TEX.wallN ,.9,0x6a6076);
+  P(M.marble,TEX.wall ,TEX.wallN ,.5,0x6a6076);
+  P(M.door  ,TEX.wood ,TEX.woodN ,.8,0x5a3f26);
+  P(M.stageWood,TEX.wood,TEX.woodN,.8,0x4a3320);
+  P(M.velvet,TEX.cloth,TEX.clothN,.7,0x6a1016);    // red velvet weave
+  P(M.wwall ,TEX.metal,TEX.metalN,.5,0x8a7a4a);    // gilt frame
+  if(TEX.flesh)TEX.flesh.encoding=THREE.sRGBEncoding;
 })();
 
 // ---- Geometry helpers ----
@@ -979,12 +1014,14 @@ function sph(r,ws=10,hs=8){return new THREE.SphereGeometry(r,ws,hs);}
 function mesh(geo,mat,x,y,z,rx=0,ry=0,rz=0){
   const m=new THREE.Mesh(geo,mat);
   m.position.set(x,y,z);m.rotation.set(rx,ry,rz);
-  scene.add(m);return m;
+  m.castShadow=true;m.receiveShadow=true;
+  scene.add(m);WORLD_HIT.push(m);return m;
 }
 
 // ---- Collision system ----
 const COLS=[];     // permanent wall colliders [{min,max}]
 const DCOLS=[];    // door colliders (removable)
+const WORLD_HIT=[];// solid surface meshes for bullet-hole raycasts (small set, not whole scene)
 
 function addCol(arr,x,z,hw,hd){arr.push({min:{x:x-hw,z:z-hd},max:{x:x+hw,z:z+hd}});}
 function hitCol(arr,x,z,r){
@@ -1085,6 +1122,7 @@ function openDoor(door){
     addCol(COLS,13.7,-6.35,0.26,4.65);
     addCol(COLS,13.7, 6.35,0.26,4.65);
   }
+  renderer.shadowMap.needsUpdate = true; // re-bake: a wall just disappeared
   SFX('door');
   flashMsg(`${door.label} — opened!`);
 }
@@ -1103,7 +1141,7 @@ function buildMap(){
   // ===== FLOORS =====
   function floor(x,z,w,d,mat){
     const m=new THREE.Mesh(box(w,.18,d),mat||M.floor);
-    m.position.set(x,-.09,z);m.receiveShadow=true;scene.add(m);
+    m.position.set(x,-.09,z);m.receiveShadow=true;scene.add(m);WORLD_HIT.push(m);
   }
   floor(0,0.5,26,27);       // main
   floor(-21.5,0,17,22,M.floor); // west wing
@@ -1111,19 +1149,10 @@ function buildMap(){
   floor(0,-21.5,26,17,M.floor); // back room
   floor(0,-38.5,22,17,M.floor); // vault
 
-  // Grid helpers
-  [0,-.09,-21.5,-38.5].forEach(y=>{
-    const g=new THREE.GridHelper(50,30,0x1a1010,0x0f0c0a);
-    g.position.set(0,y+0.01,y===0?0.5:y===-.09?-21.5:y<-38?-38.5:-21.5);
-    // simpler: just one grid per area would need custom positions, skip for perf
-  });
-  const grid=new THREE.GridHelper(80,40,0x1a1010,0x0f0c0a);
-  grid.position.y=0.01;scene.add(grid);
-
   // ===== CEILINGS =====
   function ceil(x,z,w,d){
     const m=new THREE.Mesh(box(w,.15,d),M.ceil);
-    m.position.set(x,H+.075,z);scene.add(m);
+    m.position.set(x,H+.075,z);m.receiveShadow=true;scene.add(m);
   }
   ceil(0,0.5,26,27);
   ceil(-21.5,0,17,22);
@@ -1143,15 +1172,34 @@ function buildMap(){
   // Armory door (DCOL covers center 3.4-unit gap)
   makeDoor(-30.7,H/2,0,.4,H,3.4,'armory',1500,'Armory');
 
-  // ===== INTERIOR DESIGN - CEILING LIGHT FIXTURES =====
+  // ===== ORNATE CHANDELIERS (visual-only; real light comes from the placed point lights) =====
+  const _flameMat=new THREE.MeshBasicMaterial({color:0xffd58a});
   function ceilLight(x,z,col){
-    // Visual-only fixture (no PointLight — covered by global ambient/directional)
-    const pole=new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,.4,6),new THREE.MeshPhongMaterial({color:0x222222}));
-    pole.position.set(x,H-.2,z);scene.add(pole);
-    const shade=new THREE.Mesh(new THREE.ConeGeometry(.3,.25,8,1,true),new THREE.MeshPhongMaterial({color:0x443322,side:THREE.DoubleSide}));
-    shade.rotation.x=Math.PI;shade.position.set(x,H-.45,z);scene.add(shade);
-    const bulb=new THREE.Mesh(new THREE.SphereGeometry(.07,6,5),new THREE.MeshBasicMaterial({color:col}));
-    bulb.position.set(x,H-.5,z);scene.add(bulb);
+    const g=new THREE.Group();g.position.set(x,H-.05,z);scene.add(g);
+    // chain to ceiling
+    const chain=new THREE.Mesh(new THREE.CylinderGeometry(.02,.02,.5,5),M.brass);
+    chain.position.y=.25;g.add(chain);
+    // brass tiers + central stem
+    const ring1=new THREE.Mesh(new THREE.TorusGeometry(.34,.028,7,18),M.gilt);
+    ring1.rotation.x=Math.PI/2;ring1.position.y=-.15;g.add(ring1);
+    const ring2=new THREE.Mesh(new THREE.TorusGeometry(.2,.024,7,16),M.gilt);
+    ring2.rotation.x=Math.PI/2;ring2.position.y=-.32;g.add(ring2);
+    const core=new THREE.Mesh(new THREE.CylinderGeometry(.03,.05,.34,6),M.brass);
+    core.position.y=-.24;g.add(core);
+    // outer candle ring (8 flames)
+    for(let i=0;i<8;i++){
+      const a=i/8*Math.PI*2,rx=Math.cos(a)*.34,rz=Math.sin(a)*.34;
+      const cup=new THREE.Mesh(new THREE.CylinderGeometry(.028,.02,.06,6),M.brass);cup.position.set(rx,-.12,rz);g.add(cup);
+      const fl=new THREE.Mesh(new THREE.SphereGeometry(.032,6,5),_flameMat);fl.scale.y=1.7;fl.position.set(rx,-.05,rz);g.add(fl);
+    }
+    // inner candle ring (5 flames)
+    for(let i=0;i<5;i++){
+      const a=i/5*Math.PI*2,rx=Math.cos(a)*.2,rz=Math.sin(a)*.2;
+      const fl=new THREE.Mesh(new THREE.SphereGeometry(.028,6,5),_flameMat);fl.scale.y=1.6;fl.position.set(rx,-.28,rz);g.add(fl);
+    }
+    // soft additive halo (fake bloom)
+    const glow=new THREE.Mesh(new THREE.SphereGeometry(.55,8,6),new THREE.MeshBasicMaterial({color:0xffcf9a,transparent:true,opacity:.05,blending:THREE.AdditiveBlending,depthWrite:false}));
+    glow.position.y=-.15;g.add(glow);
   }
   // Main room ceiling lights
   ceilLight(-6,6,0xff8844,1.2);ceilLight(6,6,0xff8844,1.2);
@@ -1166,6 +1214,56 @@ function buildMap(){
   ceilLight(0,-40,0x8800ff,1.2);ceilLight(-6,-36,0xaa00ff,.7);ceilLight(6,-36,0xaa00ff,.7);
   // Armory
   ceilLight(-38,0,0xffaa22,1.1);ceilLight(-36,7,0xffaa22,.8);ceilLight(-36,-7,0xffaa22,.8);ceilLight(-44,0,0xffaa22,.8);
+
+  // ================= KINO THEATER SET DRESSING =================
+  // The BACK ROOM (x:-13..13, z:-13..-30) is dressed as the theater STAGE.
+  // --- Red velvet stage curtains across the back wall (z=-30) ---
+  (function stageCurtains(){
+    const z=-29.9, wCurt=24, x0=-11.5, folds=16, ht=H-0.15;
+    for(let i=0;i<folds;i++){
+      const fx=x0 + i*(wCurt/folds);
+      const fold=new THREE.Mesh(new THREE.CylinderGeometry(.42,.42,ht,6,1,true,0,Math.PI),M.velvet);
+      fold.position.set(fx, ht/2, z);scene.add(fold);
+    }
+    // valance + gold trim across the top
+    const val=new THREE.Mesh(new THREE.BoxGeometry(wCurt,0.7,0.3),M.velvet);val.position.set(0,H-0.45,z+0.05);scene.add(val);
+    const trim=new THREE.Mesh(new THREE.BoxGeometry(wCurt,0.14,0.34),M.gilt);trim.position.set(0,H-0.82,z+0.07);scene.add(trim);
+  })();
+  // --- Gilt proscenium arch framing the stage opening (at the main<->back boundary z=-13.6) ---
+  (function proscenium(){
+    const z=-13.5;
+    for(const sx of [-9,9]){
+      const colu=new THREE.Mesh(new THREE.CylinderGeometry(.34,.4,H,10),M.gilt);
+      colu.position.set(sx,H/2,z);colu.castShadow=true;scene.add(colu);
+      const cap=new THREE.Mesh(new THREE.CylinderGeometry(.5,.4,.34,10),M.gilt);cap.position.set(sx,H-.2,z);scene.add(cap);
+      addCol(COLS,sx,z,.42,.42);
+      // draped side swag
+      const swag=new THREE.Mesh(new THREE.CylinderGeometry(.5,.75,H-0.6,7,1,true,0,Math.PI),M.velvet);
+      swag.position.set(sx+(sx<0?.55:-.55),(H-.6)/2,z+.35);swag.rotation.y=sx<0?0:Math.PI;scene.add(swag);
+    }
+    const entab=new THREE.Mesh(new THREE.BoxGeometry(19,.62,.5),M.gilt);entab.position.set(0,H-.12,z);entab.castShadow=true;scene.add(entab);
+  })();
+  // --- Raised stage boards + a warm footlight strip along the stage front ---
+  (function stage(){
+    const boards=new THREE.Mesh(new THREE.BoxGeometry(24,.06,15),M.stageWood);
+    boards.position.set(0,.02,-22);boards.receiveShadow=true;scene.add(boards);
+    for(let i=0;i<10;i++){
+      const fx=-11+i*2.44;
+      const bulb=new THREE.Mesh(new THREE.SphereGeometry(.085,7,6),new THREE.MeshBasicMaterial({color:0xffcaa0}));
+      bulb.position.set(fx,.17,-14.6);scene.add(bulb);
+      const hood=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,.16,7,1,true,0,Math.PI),M.brass);
+      hood.rotation.z=Math.PI/2;hood.position.set(fx,.17,-14.74);scene.add(hood);
+    }
+  })();
+  // --- Grand piano on the stage ---
+  (function piano(){
+    const px=-6,pz=-24, blk=std(0x090508,0.22,0.15);
+    const body=new THREE.Mesh(new THREE.BoxGeometry(1.6,.5,2.2),blk);body.position.set(px,.62,pz);body.castShadow=true;scene.add(body);
+    const lid=new THREE.Mesh(new THREE.BoxGeometry(1.5,.05,1.7),blk);lid.position.set(px+.35,.9,pz);lid.rotation.z=-.55;scene.add(lid);
+    const keys=new THREE.Mesh(new THREE.BoxGeometry(1.2,.06,.28),std(0xe8e4dc,0.3,0));keys.position.set(px,.62,pz+1.05);scene.add(keys);
+    [[-.65,-.95],[.65,-.95],[.65,.95]].forEach(([lx,lz])=>{const leg=new THREE.Mesh(new THREE.CylinderGeometry(.055,.055,.62,6),blk);leg.position.set(px+lx,.31,pz+lz);scene.add(leg);});
+    addCol(COLS,px,pz,1.0,1.25);
+  })();
 
   // ===== INTERIOR DESIGN - WALL TRIM (floor/ceiling baseboards) =====
   const trimMat2=phong(0x1a0c06,0x110804,15);
@@ -1647,6 +1745,7 @@ function buildMap(){
 
 const PERK_ORBS=[]; // global — animated in game loop
 buildMap();
+renderer.shadowMap.needsUpdate = true; // bake static shadows now that the map exists
 
 // ===== MYSTERY BOX =====
 const MYSTERY_LOCS=[
@@ -2372,13 +2471,12 @@ function doShoot(){
         flashHM(hs);updateHUD();hitZombie=true;break;
       }
     }
-    // Bullet hole on wall if no zombie hit
-    if(!hitZombie){
-      const bhRay=new THREE.Raycaster(CAM.position,dir,.1,80);
-      const zombieGrps=new Set(ZOMBIES.map(z=>z.grp));
-      const isZombie=(obj)=>{let o=obj;while(o){if(zombieGrps.has(o))return true;o=o.parent;}return false;};
-      const hits=bhRay.intersectObjects(scene.children,true).filter(h=>!isZombie(h.object)&&h.point.y>0.05);
-      if(hits.length>0){
+    // Bullet hole on wall if no zombie hit — raycast only the small WORLD_HIT set
+    // (was intersecting the ENTIRE scene graph per pellet: a major freeze source)
+    if(!hitZombie && WORLD_HIT.length){
+      RAY.set(CAM.position,dir);RAY.near=.1;RAY.far=80;
+      const hits=RAY.intersectObjects(WORLD_HIT,false);
+      if(hits.length>0 && hits[0].point.y>0.05 && hits[0].face){
         const h=hits[0];
         const wn=h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
         spawnBulletHole(h.point,wn);
@@ -2451,6 +2549,7 @@ const _bloodGeo=new THREE.SphereGeometry(1,5,4);
 // x,y,z: origin | amount: droplet count | boss: darker/redder | dir: optional THREE.Vector3 spray direction
 function spawnBlood(x,y,z,amount,boss,dir){
   const col=boss?0x8a0808:0x6b0a0a;
+  if(PARTICLES.length>200) return; // hard cap: never let gore spikes stall the frame
   for(let i=0;i<amount;i++){
     const s=.02+Math.random()*.055;
     const m=new THREE.Mesh(_bloodGeo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.95}));
@@ -3244,8 +3343,9 @@ class Zombie{
     this._deathBaseY=this.grp.position.y;
     // gore burst up from the torso
     spawnBlood(this.pos.x,1.2,this.pos.z,this.isBoss?28:15,this.isBoss);
-    // desaturate to a bloodied corpse, but keep materials fade-able
-    this.grp.traverse(m=>{if(m.isMesh&&m.material)m.material=new THREE.MeshLambertMaterial({color:this.isBoss?0x3a0808:0x241009,transparent:true,opacity:1});});
+    // desaturate to a bloodied corpse — ONE shared material for the whole body (was one per mesh)
+    const corpseMat=new THREE.MeshLambertMaterial({color:this.isBoss?0x3a0808:0x241009,transparent:true,opacity:1});
+    this.grp.traverse(m=>{if(m.isMesh&&m.material)m.material=corpseMat;});
     if(this.hpBG)this.hpBG.visible=false;
     if(this.hpFG)this.hpFG.visible=false;
     // growing pool of blood beneath the body
