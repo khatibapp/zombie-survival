@@ -1037,6 +1037,8 @@ const ROOMS={
   back: {x0:-13,x1:13, z0:-30,z1:-13,open:false},
   vault:{x0:-11,x1:11, z0:-47,z1:-30,open:false},
   armory:{x0:-47,x1:-30,z0:-11,z1:11,open:false},
+  lobby:  {x0:30, x1:52, z0:-11,z1:11, open:false}, // grand lobby (east of east wing)
+  ballroom:{x0:30, x1:52, z0:-33,z1:-11,open:false}, // grand ballroom (north of lobby)
   courtyard:{x0:-14,x1:14,z0:14,z1:36,open:false},
   rooftop:{x0:-14,x1:14,z0:14,z1:36,open:false},
   stairs:{x0:-14,x1:-10,z0:14,z1:26,open:false},
@@ -1408,10 +1410,62 @@ function buildMap(){
   // ===== EAST WING =====
   wall(21.5,H/2,-11.7,17,H,T,M.wall2);
   wall(21.5,H/2,11.7,17,H,T,M.wall2);
-  wall(30.7,H/2,0,T,H,22,M.wall2);
   mesh(box(T,H,9.3),M.wall,13.7,H/2,-6.35);
   mesh(box(T,H,9.3),M.wall,13.7,H/2, 6.35);
   mesh(box(T,1.0,3.4),M.wall,13.7,H-.5,0);
+
+  // === East-wing east wall -> DOORWAY into the Grand Lobby (gap at z=0) ===
+  mesh(box(T,H,9.3),M.wall2,30.7,H/2,-6.35); addCol(COLS,30.7,-6.35,T/2+.02,4.65);
+  mesh(box(T,H,9.3),M.wall2,30.7,H/2, 6.35); addCol(COLS,30.7, 6.35,T/2+.02,4.65);
+  mesh(box(T,1.0,3.4),M.wall2,30.7,H-.5,0);
+  makeDoor(30.7,H/2,0,.4,H,3.4,'lobby',1250,'Grand Lobby');
+
+  // ==================== GRAND LOBBY (x:30..52, z:-11..11) ====================
+  floor(41,0,22,22); ceil(41,0,22,22);
+  wall(52.3,H/2,0,T,H,22,M.wall);          // east outer wall
+  wall(41,H/2,11.3,22,H,T,M.wall);         // south outer wall
+  // north wall -> doorway into the ballroom (gap at x=41)
+  mesh(box(9.3,H,T),M.wall,34.65,H/2,-11.3); addCol(COLS,34.65,-11.3,4.65,T/2+.02);
+  mesh(box(9.3,H,T),M.wall,47.35,H/2,-11.3); addCol(COLS,47.35,-11.3,4.65,T/2+.02);
+  mesh(box(3.4,1.0,T),M.wall,41,H-.5,-11.3);
+  makeDoor(41,H/2,-11.3,3.4,H,.4,'ballroom',1500,'Grand Ballroom');
+  // warm light + chandeliers
+  ptL(41,4,2,0xffb066,1.7,24);
+  ceilLight(41,0); ceilLight(35,6); ceilLight(47,-6);
+  // gilt columns
+  [[35,-6],[47,-6],[35,6],[47,6]].forEach(function(c){
+    mesh(cyl(.32,.4,H,10),M.gilt,c[0],H/2,c[1]); addCol(COLS,c[0],c[1],.45,.45);
+    mesh(cyl(.5,.4,.34,10),M.gilt,c[0],H-.2,c[1]);
+  });
+  // red carpet runner
+  mesh(box(3.2,.02,20),M.velvet,41,.02,0);
+  // ticket booth
+  mesh(box(2.4,1.6,1.6),M.stageWood,49,.8,7); addCol(COLS,49,7,1.3,.9);
+  mesh(box(2.0,.1,1.2),M.gilt,49,1.62,7);
+  wallPoster(52.1,2.2, 4,-Math.PI/2,'NOW\nSHOWING','#d4af37');
+  wallPoster(52.1,2.2,-4,-Math.PI/2,'THE\nUNDEAD','#c0492b');
+  buySign(52.2,1.25,0,'x-','AK-47',1200,'#c0492b');
+
+  // ==================== GRAND BALLROOM (x:30..52, z:-33..-11) ====================
+  floor(41,-22,22,22); ceil(41,-22,22,22);
+  wall(52.3,H/2,-22,T,H,22,M.wall);        // east
+  wall(29.7,H/2,-22,T,H,22,M.wall);        // west
+  wall(41,H/2,-33.3,22,H,T,M.wall);        // north
+  ptL(41,4,-22,0xff9a55,1.6,24);
+  ceilLight(41,-22); ceilLight(35,-28); ceilLight(47,-16);
+  [[35,-16],[47,-16],[35,-28],[47,-28]].forEach(function(c){
+    mesh(cyl(.32,.4,H,10),M.gilt,c[0],H/2,c[1]); addCol(COLS,c[0],c[1],.45,.45);
+    mesh(cyl(.5,.4,.34,10),M.gilt,c[0],H-.2,c[1]);
+  });
+  // grand carpeted staircase (decorative) against the north wall
+  for(let s=0;s<6;s++){
+    mesh(box(11,.26,.62),M.stageWood,41,.13+s*.26,-32.6+s*.62);
+    mesh(box(4,.04,.62),M.velvet,41,.28+s*.26,-32.6+s*.62);
+  }
+  addCol(COLS,41,-31.4,5.6,2.0); // block the stair footprint
+  mesh(box(.1,2.6,3),M.marble,51.9,1.9,-22); // grand mirror
+  wallPoster(41,2.5,-33.1,0,'GRAND\nBALLROOM','#d4af37');
+  buySign(41,1.25,-33.15,'z+','M14',1000,'#8a6a3a');
 
   // ===== BACK ROOM =====
   mesh(box(T,H,17),M.wall3,-13.7,H/2,-21.5); addCol(COLS,-13.7,-21.5,T/2+0.02,8.52);
@@ -2191,6 +2245,9 @@ const INTERACTABLES=[
   // back room
   {type:'buy',x:-12,z:-28,range:2.3,weaponKey:'l96',cost:1800,label:'L96A1 Sniper'},
   {type:'buy',x:12, z:-28,range:2.3,weaponKey:'m60',cost:2000,label:'M60 LMG'},
+  // grand lobby / ballroom
+  {type:'buy',x:51.6,z:0,   range:2.3,weaponKey:'ak47',cost:1200,label:'AK-47'},
+  {type:'buy',x:41,  z:-32.4,range:2.5,weaponKey:'m14', cost:1000,label:'M14'},
   // perks
   {type:'perk',x:-10.5,z:-10.5,range:2.3,perkKey:'juggernog', cost:2500,label:'Juggernog',   desc:'250 max HP'},
   {type:'perk',x:10.5, z:-10.5,range:2.3,perkKey:'double_tap',cost:2500,label:'Double Tap',  desc:'2× fire rate'},
@@ -3380,6 +3437,10 @@ const SPAWN_PTS=[
   // Courtyard
   {x:-10,z:20},{x:10,z:20},{x:0,z:30},{x:-8,z:34},{x:8,z:34},
   {x:-12,z:26},{x:12,z:26},{x:0,z:22},
+  // Grand Lobby
+  {x:50,z:0},{x:50,z:8},{x:50,z:-8},{x:41,z:9},{x:34,z:8},
+  // Grand Ballroom
+  {x:50,z:-14},{x:50,z:-26},{x:32,z:-26},{x:41,z:-14},{x:47,z:-20},
 ];
 
 function activeSpawns(){
