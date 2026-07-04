@@ -1172,48 +1172,42 @@ const COLS=[];     // permanent wall colliders [{min,max}]
 const DCOLS=[];    // door colliders (removable)
 const WORLD_HIT=[];// solid surface meshes for bullet-hole raycasts (small set, not whole scene)
 
-function addCol(arr,x,z,hw,hd){arr.push({min:{x:x-hw,z:z-hd},max:{x:x+hw,z:z+hd}});}
-function hitCol(arr,x,z,r){
-  for(const c of arr) if(x+r>c.min.x&&x-r<c.max.x&&z+r>c.min.z&&z-r<c.max.z) return true;
+// Colliders + rooms are Y-AWARE now (fy = the floor level they belong to). Floors
+// are separated by ~4.5m so a point only matches its own floor (except on stairs).
+function addCol(arr,x,z,hw,hd,fy){arr.push({min:{x:x-hw,z:z-hd},max:{x:x+hw,z:z+hd},fy:fy||0});}
+function hitCol(arr,x,z,r,y){
+  for(const c of arr){ if(y!==undefined && Math.abs((c.fy||0)-y)>2.9) continue; if(x+r>c.min.x&&x-r<c.max.x&&z+r>c.min.z&&z-r<c.max.z) return true; }
   return false;
 }
 
-// ---- Room system ----
-// NEW MAP — clean "plus" facility: central ATRIUM + 4 themed arms. No overlaps.
+// ---- Room system (multi-floor). fy = floor level (basement -4.5, ground 0, upper 4.5) ----
+// GROUND floor (built by buildMapNew). Basement + Upper added by buildFloorsV3().
 const ROOMS={
-  atrium:   {x0:-11,x1:11, z0:-11,z1:11, open:true },  // spawn hub
-  lab:      {x0:-11,x1:11, z0:-33,z1:-11,open:false},  // north — sci-fi lab (PaP, teleporter)
-  foyer:    {x0:-11,x1:11, z0:11, z1:33, open:false},  // south — grand foyer (mystery box)
-  theater:  {x0:-37,x1:-11,z0:-11,z1:11, open:false},  // west — Kino theater (stage)
-  courtyard:{x0:11, x1:37, z0:-11,z1:11, open:false},  // east — ruined courtyard
+  atrium:   {x0:-11,x1:11, z0:-11,z1:11, fy:0, open:true },
+  lab:      {x0:-11,x1:11, z0:-33,z1:-11,fy:0, open:false},
+  foyer:    {x0:-11,x1:11, z0:11, z1:33, fy:0, open:false},
+  theater:  {x0:-37,x1:-11,z0:-11,z1:11, fy:0, open:false},
+  courtyard:{x0:11, x1:37, z0:-11,z1:11, fy:0, open:false},
 };
-
-function inOpenRoom(x,z){
-  for(const r of Object.values(ROOMS)){
-    if(r.open && x>=r.x0 && x<=r.x1 && z>=r.z0 && z<=r.z1) return true;
-  }
+function inOpenRoom(x,z,y){
+  for(const k in ROOMS){ const r=ROOMS[k]; if(r.open && x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1 && (y===undefined||Math.abs(r.fy-y)<2.9)) return true; }
   return false;
 }
-
-// Upper level zones (staircase + rooftop above courtyard)
-function inUpperArea(x,z){ return false; } // new map is single-floor & flat
-function getFloorH(x,z,curY){ return 0; }
-
-function blocked(x,z,r){
-  // Upper level movement — restricted to inUpperArea bounds
-  if(PL&&PL.pos&&PL.pos.y>2.5){
-    if(!inUpperArea(x,z)){
-      // Allow if on ground level of an open room (they might be walking on stairs from below)
-      if(!inOpenRoom(x,z)) return true;
-      if(hitCol(COLS,x,z,r)) return true;
-      if(hitCol(DCOLS,x,z,r)) return true;
-      return false;
-    }
-    return hitCol(COLS,x,z,r);
-  }
-  if(!inOpenRoom(x,z)) return true;
-  if(hitCol(COLS,x,z,r)) return true;
-  if(hitCol(DCOLS,x,z,r)) return true;
+function inUpperArea(x,z){ return false; } // legacy no-op; verticality handled by getFloorH
+// Height zones for real verticality: flat floors + stair ramps (interpolated)
+const HZ_FLAT=[]; // {x0,x1,z0,z1,fy}
+const HZ_RAMP=[]; // {x0,x1,z0,z1,y0,y1,axis:'x'|'z'}
+function getFloorH(x,z,curY){
+  for(const rp of HZ_RAMP){ if(x>=rp.x0&&x<=rp.x1&&z>=rp.z0&&z<=rp.z1){ const t=(rp.axis==='z')?(z-rp.z0)/(rp.z1-rp.z0):(x-rp.x0)/(rp.x1-rp.x0); return rp.y0+(rp.y1-rp.y0)*Math.max(0,Math.min(1,t)); } }
+  let best=null;
+  for(const f of HZ_FLAT){ if(x>=f.x0&&x<=f.x1&&z>=f.z0&&z<=f.z1 && f.fy<=(curY===undefined?1e9:curY)+2.4){ if(best===null||f.fy>best) best=f.fy; } }
+  return best===null?0:best;
+}
+function blocked(x,z,r,y){
+  if(y===undefined) y=(PL&&PL.pos)?PL.pos.y:0;
+  if(!inOpenRoom(x,z,y)) return true;
+  if(hitCol(COLS,x,z,r,y)) return true;
+  if(hitCol(DCOLS,x,z,r,y)) return true;
   return false;
 }
 
@@ -1226,9 +1220,10 @@ function makeDoor(x,y,z,w,h,d,roomKey,cost,label){
   const trimMat=phong(0x443322,0x221a11,20);
   const t1=new THREE.Mesh(box(w+0.1,0.15,d+0.1),trimMat);t1.position.set(0,h/2,0);m.add(t1);
   const t2=new THREE.Mesh(box(w+0.1,0.15,d+0.1),trimMat);t2.position.set(0,-h/2,0);m.add(t2);
-  const col={min:{x:x-w/2,z:z-d/2},max:{x:x+w/2,z:z+d/2}};
+  const fy=y-h/2; // floor level this door sits on (ground door: 2.1-2.1=0)
+  const col={min:{x:x-w/2,z:z-d/2},max:{x:x+w/2,z:z+d/2},fy};
   DCOLS.push(col);
-  const door={mesh:m,col,roomKey,cost,label,x,z,w,d,range:2.5,open:false};
+  const door={mesh:m,col,roomKey,cost,label,x,z,w,d,fy,range:2.5,open:false};
   DOOR_LIST.push(door);
   return door;
 }
@@ -2014,8 +2009,58 @@ function buildMap(){
 
 const PERK_ORBS=[]; // global — animated in game loop
 buildMapNew(); // OLD buildMap() is intentionally NOT called — clean new layout, nothing old left behind
+buildFloorsV3();// v3: adds BASEMENT + UPPER floors, stairs, drop-through, skybox (real verticality)
 phase1Assets(); // load real PBR textures + IBL + film-grade pass (now that materials M exist)
 dressMap();     // Phase 2: architectural trim + columns + per-room set-dressing (additive, no nav impact)
+
+// ============================ v3.0.0 — MULTI-FLOOR + SKY ============================
+/*  VERTICAL LAYOUT (fy = floor height)
+    UPPER  (+4.5):  CATWALK / PROJECTION  (above Lab; roof hole = drop-through to Lab)
+    GROUND ( 0.0):  ATRIUM · LAB · FOYER · THEATER · COURTYARD  (the existing 5)
+    BASEMENT(-4.5): BOILER ROOM (flooded, furnace)  (below Lab)
+    Connectors: Lab east stair-ramp DOWN to Boiler; Lab west stair-ramp UP to Catwalk;
+                one-way DROP-THROUGH hole in the Catwalk floor back down to the Lab.  */
+function buildFloorsV3(){
+  const H=4.2,T=0.45,BY=-4.5,UY=4.5;
+  // ground-floor height zones (so getFloorH returns 0 over ground, NOT the basement below)
+  HZ_FLAT.push({x0:-11,x1:11,z0:-11,z1:11,fy:0},{x0:-11,x1:11,z0:-33,z1:-11,fy:0},{x0:-11,x1:11,z0:11,z1:33,fy:0},{x0:-37,x1:-11,z0:-11,z1:11,fy:0},{x0:11,x1:37,z0:-11,z1:11,fy:0});
+  const flr=(cx,cz,w,d,y,mat)=>{const m=new THREE.Mesh(box(w,.3,d),mat||M.floor);m.position.set(cx,y-.15,cz);m.receiveShadow=true;scene.add(m);WORLD_HIT.push(m);};
+  const cei=(cx,cz,w,d,y)=>{const m=new THREE.Mesh(box(w,.2,d),M.ceil);m.position.set(cx,y+H,cz);scene.add(m);};
+  const wal=(x,z,w,d,fy,mat)=>{mesh(box(w,H,d),mat||M.wall,x,fy+H/2,z);addCol(COLS,x,z,w/2+.02,d/2+.02,fy);};
+  // ---- BASEMENT: Boiler Room (below the Lab) ----
+  ROOMS.boiler={x0:-11,x1:11,z0:-33,z1:-13,fy:BY,open:true,name:'Boiler Room'};
+  HZ_FLAT.push({x0:-11,x1:11,z0:-33,z1:-13,fy:BY});
+  flr(0,-23,22,20,BY,std(0x14100c,.92,.05)); cei(0,-23,22,20,BY);
+  wal(0,-33.3,22,T,BY); wal(-11.3,-23,T,20,BY); wal(11.3,-23,T,20,BY); wal(0,-12.7,22,T,BY);
+  ptL(0,BY+3.4,-23,0xff5a1e,2.2,20);
+  mesh(box(4,4,3),std(0x1a1410,.7,.5),0,BY+2,-30); addCol(COLS,0,-30,2.2,1.7,BY);              // furnace landmark
+  { const fg=new THREE.Mesh(box(1.3,1.7,.2),new THREE.MeshBasicMaterial({color:0xff6a00})); fg.position.set(0,BY+1.4,-28.4); scene.add(fg); }
+  { const water=new THREE.Mesh(box(21,.04,19),new THREE.MeshStandardMaterial({color:0x0a2028,transparent:true,opacity:.55,roughness:.05,metalness:.4})); water.position.set(0,BY+.35,-23); scene.add(water); } // knee-deep water
+  // ---- UPPER: Projection Catwalk (above the Lab) ----
+  ROOMS.catwalk={x0:-11,x1:11,z0:-33,z1:-13,fy:UY,open:true,name:'Projection Catwalk'};
+  HZ_FLAT.push({x0:-11,x1:11,z0:-28,z1:-13,fy:UY}); // hole at z:-33..-28 = one-way DROP-THROUGH to the Lab
+  flr(0,-20.5,22,15,UY,std(0x1a1a1e,.7,.3));
+  wal(0,-33.3,22,T,UY); wal(-11.3,-23,T,20,UY); wal(11.3,-23,T,20,UY);
+  ptL(0,UY+3,-22,0x88aaff,1.8,20);
+  mesh(box(1.4,1,2),std(0x14161a,.5,.6),0,UY+.8,-15); mesh(cyl(.12,.2,.5,10),std(0x222,.4,.6),0,UY+1.2,-13.6,Math.PI/2); // projector landmark
+  // railing around the drop hole
+  for(const e of [[-11,-30.5,T,5],[11,-30.5,T,5],[0,-28.2,22,T]]) mesh(box(e[2],.9,e[3]),std(0x33373a,.5,.6),e[0],UY+.45,e[1]);
+  // ---- STAIRS (ramps) : Lab EAST down to Boiler, Lab WEST up to Catwalk ----
+  HZ_RAMP.push({x0:7,x1:11,z0:-31,z1:-13,y0:0,y1:BY,axis:'z'});   // walking NORTH descends to basement
+  HZ_RAMP.push({x0:-11,x1:-7,z0:-31,z1:-13,y0:0,y1:UY,axis:'z'}); // walking NORTH ascends to catwalk
+  // register the stair shafts as open rooms spanning the vertical band (so you can stand on the ramps)
+  ROOMS.stairD={x0:6.5,x1:11.2,z0:-31,z1:-13,fy:BY/2,open:true,name:'Stairwell'};
+  ROOMS.stairU={x0:-11.2,x1:-6.5,z0:-31,z1:-13,fy:UY/2,open:true,name:'Stairwell'};
+  for(let i=0;i<9;i++){ const t=i/9; mesh(box(3.4,.18,2),std(0x2a2620,.8,.1),9,BY*t-.1,-13-i*2); mesh(box(3.4,.18,2),std(0x2a2620,.8,.1),-9,UY*t-.1,-13-i*2); }
+  // side walls for the stairwells (basement + upper level colliders so you can't fall off)
+  wal(11.2,-22,T,18,BY); wal(-11.2,-22,T,18,UY);
+  // ---- SKY: night dome + moon (visible looking up through the drop hole / catwalk) ----
+  { const sky=new THREE.Mesh(new THREE.SphereGeometry(180,20,14),new THREE.MeshBasicMaterial({color:0x05060f,side:THREE.BackSide,fog:false})); scene.add(sky);
+    const moon=new THREE.Mesh(new THREE.SphereGeometry(6,18,14),new THREE.MeshBasicMaterial({color:0xdfe6f0,fog:false})); moon.position.set(90,80,70); scene.add(moon);
+    const glow=new THREE.Mesh(new THREE.SphereGeometry(11,16,12),new THREE.MeshBasicMaterial({color:0x99aacc,transparent:true,opacity:.25,fog:false})); glow.position.copy(moon.position); scene.add(glow);
+  }
+  // (spawn closets for these floors are added to the SPAWN_PTS literal directly — see below)
+}
 // livingAtmosphere() is called near loop() — after ALL its globals (POWER_ON, mystGrp, ...) exist.
 
 // ===================== PHASE 3+4: LIVING ATMOSPHERE + SPECTACLE =====================
@@ -4007,7 +4052,7 @@ class Zombie{
     this.head.rotation.x=.24+Math.sin(this.walkT*.5+1)*.09;
     this.torso.rotation.z=Math.sin(this.walkT*.5)*.06+_lp*.3;
     this.torso.position.y=.82+Math.abs(ws)*.045;
-    if(dist>0.88){
+    if(dist>0.88 || Math.abs((this.pos.y||0)-ppos.y)>2.2){ // move unless adjacent AND on the same floor
       const step=this.spd*dt;
       // Line-of-sight shortcut (throttled) — beeline straight at the player in open rooms
       if(now>(this._losT||0)){ this._losT=now+170+Math.random()*90; this._hasLOS=navLOS(this.pos.x,this.pos.z,ppos.x,ppos.z); }
@@ -4025,11 +4070,12 @@ class Zombie{
       const mdx=tx-this.pos.x, mdz=tz-this.pos.z, ml=Math.hypot(mdx,mdz)||1;
       const nx=this.pos.x+(mdx/ml)*step, nz=this.pos.z+(mdz/ml)*step;
       let moved=false;
-      if(!blocked(nx,this.pos.z,this.radius)){this.pos.x=nx;moved=true;}
-      if(!blocked(this.pos.x,nz,this.radius)){this.pos.z=nz;moved=true;}
+      const zy=this.pos.y=getFloorH(this.pos.x,this.pos.z,this.pos.y||0); // this zombie's floor level
+      if(!blocked(nx,this.pos.z,this.radius,zy)){this.pos.x=nx;moved=true;}
+      if(!blocked(this.pos.x,nz,this.radius,zy)){this.pos.z=nz;moved=true;}
       if(!moved){ // pressed against a prop mid-segment: slip perpendicular + force a fresh path
         const pa=Math.atan2(mdx,mdz)+(Math.sin(now*.003+this.walkT)>0?1.4:-1.4), sx=Math.sin(pa)*step, sz=Math.cos(pa)*step;
-        if(!blocked(this.pos.x+sx,this.pos.z,this.radius))this.pos.x+=sx; else if(!blocked(this.pos.x,this.pos.z+sz,this.radius))this.pos.z+=sz;
+        if(!blocked(this.pos.x+sx,this.pos.z,this.radius,zy))this.pos.x+=sx; else if(!blocked(this.pos.x,this.pos.z+sz,this.radius,zy))this.pos.z+=sz;
         this.path=null;
       }
       this.grp.rotation.y=Math.atan2(tx-this.pos.x,tz-this.pos.z);
@@ -4064,7 +4110,7 @@ class Zombie{
         const nx=this.pos.x+ox/od*push;
         const nz=this.pos.z+oz/od*push;
         // Only apply if result stays in valid zone
-        if(inOpenRoom(nx,nz)||inUpperArea(nx,nz)){
+        if(inOpenRoom(nx,nz,this.pos.y)){
           this.pos.x=nx;this.pos.z=nz;
         }
       }
@@ -4144,10 +4190,17 @@ const SPAWN_PTS=[
   {x:-24,z:-8},{x:-24,z:8},{x:-16,z:0},{x:-33,z:-4},{x:-33,z:4},
   // Courtyard (east)
   {x:26,z:-4},{x:26,z:6},{x:34,z:2},{x:16,z:4},{x:34,z:8},
+  // Basement — Boiler Room (fy:-4.5, reached via Lab east stair)
+  {x:0,z:-30,fy:-4.5},{x:-8,z:-24,fy:-4.5},{x:8,z:-24,fy:-4.5},
+  // Upper — Projection Catwalk (fy:4.5, reached via Lab west stair)
+  {x:0,z:-24,fy:4.5},{x:-8,z:-18,fy:4.5},{x:8,z:-18,fy:4.5},
 ];
 
 function activeSpawns(){
-  return SPAWN_PTS.filter(p=>inOpenRoom(p.x,p.z));
+  const open=SPAWN_PTS.filter(p=>inOpenRoom(p.x,p.z,p.fy||0));
+  // Part E: prefer spawns on the player's current floor near their zone; fall back to all open.
+  const pf=PL.pos.y, near=open.filter(p=>Math.abs((p.fy||0)-pf)<2.6 && Math.hypot(p.x-PL.pos.x,p.z-PL.pos.z)<34);
+  return near.length>=3 ? near : (open.length?open:SPAWN_PTS);
 }
 
 function startRound(r){
@@ -4209,6 +4262,7 @@ function spawnZ(r,isBoss=false){
   if(!pts.length)return;
   const sp=pts[Math.floor(Math.random()*pts.length)];
   const z=new Zombie(sp.x+(Math.random()-.5)*1.5,sp.z+(Math.random()-.5)*1.5,r,isBoss);
+  z.pos.y=sp.fy||0; // spawn on the correct floor
   ZOMBIES.push(z);
   if(isBoss) currentBoss=z;
   spawned++;updateHUD();
@@ -4610,10 +4664,10 @@ function bakeNavGrid(){
   const pad=1.5; minX-=pad;maxX+=pad;minZ-=pad;maxZ+=pad;
   const cell=0.6, cols=Math.ceil((maxX-minX)/cell), rows=Math.ceil((maxZ-minZ)/cell);
   const walk=new Uint8Array(cols*rows), door=new Int16Array(cols*rows), R=0.34;
-  const inRooms=(x,z)=>{ for(const r of Object.values(ROOMS)){ if(x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1)return true; } return false; };
+  const inRooms=(x,z)=>{ for(const r of Object.values(ROOMS)){ if(Math.abs(r.fy||0)>1)continue; if(x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1)return true; } return false; }; // ground floor only
   for(let ri=0;ri<rows;ri++)for(let ci=0;ci<cols;ci++){
     const x=minX+(ci+0.5)*cell, z=minZ+(ri+0.5)*cell;
-    walk[ri*cols+ci]=(inRooms(x,z)&&!hitCol(COLS,x,z,R))?1:0;
+    walk[ri*cols+ci]=(inRooms(x,z)&&!hitCol(COLS,x,z,R,0))?1:0; // ground-floor colliders only
   }
   for(let di=0;di<DOOR_LIST.length;di++){
     const c=DOOR_LIST[di].col; if(!c)continue;
