@@ -958,11 +958,12 @@ scene.add(sun.target);
 scene.add(new THREE.AmbientLight(0x14121e, 0.34));
 scene.add(new THREE.HemisphereLight(0x2a2038, 0x080608, 0.36));
 
+const ALL_PTL=[]; // registry for the power system + flicker: {l, base}
 function ptL(x,y,z,col,i,d,shadow){
   const l=new THREE.PointLight(col,i,d);
   l.position.set(x,y,z);
   if(shadow){l.castShadow=true;l.shadow.mapSize.set(1024,1024);l.shadow.bias=-0.0006;l.shadow.camera.far=d;}
-  scene.add(l);return l;
+  scene.add(l);ALL_PTL.push({l,base:i});return l;
 }
 // NOTE: per-room point lights are created by buildMapNew(). The old global
 // room-lights were REMOVED here — they doubled up with the new ones and blew
@@ -2014,6 +2015,84 @@ const PERK_ORBS=[]; // global — animated in game loop
 buildMapNew(); // OLD buildMap() is intentionally NOT called — clean new layout, nothing old left behind
 phase1Assets(); // load real PBR textures + IBL + film-grade pass (now that materials M exist)
 dressMap();     // Phase 2: architectural trim + columns + per-room set-dressing (additive, no nav impact)
+// livingAtmosphere() is called near loop() — after ALL its globals (POWER_ON, mystGrp, ...) exist.
+
+// ===================== PHASE 3+4: LIVING ATMOSPHERE + SPECTACLE =====================
+let POWER_ON=false;
+const _EMERGENCY=[];
+const _FLICKER=[];
+let _rain=null, _rainP=[], _lightLight=null, _lightT=10, _flash=0;
+let _dust=null;
+let _powerLED=null,_powerLever=null;
+let _papFx=null; // PaP idle rings group
+let _boxPillar=null, _movePillar=null, _movePillarT=0;
+const BOTTLE_ANIMS=[];
+function setPower(on){
+  POWER_ON=on;
+  for(const e of ALL_PTL) e.l.intensity = on? e.base : e.base*0.3;
+  for(const l of _EMERGENCY) l.intensity = on? 0 : 1.3;
+  if(_powerLED) _powerLED.material.color.setHex(on?0x33ff44:0xff2200);
+  if(_powerLever) _powerLever.rotation.z = on? -0.6 : 0.6;
+  if(on){ SFX('pap'); flashMsg('⚡ POWER RESTORED'); try{renderer.shadowMap.needsUpdate=true;}catch(e){} }
+}
+function livingAtmosphere(){
+  // --- emergency red lights (on until power) ---
+  for(const s of [[0,0],[0,-22],[0,22],[-24,0],[24,0]]){ const l=new THREE.PointLight(0xff2a12,1.3,17); l.position.set(s[0],3.4,s[1]); scene.add(l); _EMERGENCY.push(l); }
+  // --- power switch panel (lab west wall, x=-11 @ z=-30) ---
+  { const px=-10.7,pz=-30, mt=std(0x14161a,.5,.6);
+    const panel=new THREE.Mesh(box(.5,.72,.26),mt); panel.position.set(px,1.4,pz); panel.castShadow=true; scene.add(panel);
+    _powerLever=new THREE.Mesh(box(.06,.3,.06),std(0x8a2a2a,.4,.6)); _powerLever.position.set(px+.16,1.35,pz); _powerLever.rotation.z=.6; scene.add(_powerLever);
+    _powerLED=new THREE.Mesh(sph(.05,8,6),new THREE.MeshBasicMaterial({color:0xff2200})); _powerLED.position.set(px,1.72,pz-.14); scene.add(_powerLED);
+  }
+  // --- flicker: register ~half the room lights ---
+  for(let i=0;i<ALL_PTL.length;i+=2) _FLICKER.push({l:ALL_PTL[i].l,base:ALL_PTL[i].base,seed:Math.random()*100});
+  // --- rain over the courtyard (instanced streaks) ---
+  try{
+    const N=180; const g=new THREE.CylinderGeometry(.012,.012,.55,4); const m=new THREE.MeshBasicMaterial({color:0x9ab4d0,transparent:true,opacity:.32});
+    _rain=new THREE.InstancedMesh(g,m,N); const dm=new THREE.Object3D(); _rain._dm=dm; _rain._N=N;
+    for(let i=0;i<N;i++){ const p={x:11+Math.random()*26,y:Math.random()*6,z:-11+Math.random()*22}; _rainP.push(p); dm.position.set(p.x,p.y,p.z); dm.updateMatrix(); _rain.setMatrixAt(i,dm.matrix); }
+    _rain.instanceMatrix.needsUpdate=true; scene.add(_rain);
+  }catch(e){}
+  // --- lightning light ---
+  _lightLight=new THREE.PointLight(0xc4d4ff,0,70); _lightLight.position.set(24,11,0); scene.add(_lightLight); _lightT=8+Math.random()*14;
+  // --- dust motes (Points) ---
+  try{
+    const N=150,pos=new Float32Array(N*3); for(let i=0;i<N;i++){pos[i*3]=(Math.random()-.5)*44;pos[i*3+1]=Math.random()*3.6+.3;pos[i*3+2]=(Math.random()-.5)*44;}
+    const bg=new THREE.BufferGeometry(); bg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    _dust=new THREE.Points(bg,new THREE.PointsMaterial({color:0xffe9c8,size:.03,transparent:true,opacity:.32,depthWrite:false})); scene.add(_dust);
+  }catch(e){}
+  // --- PaP idle: rotating rings + runes at the PaP (0,-31.4) ---
+  _papFx=new THREE.Group(); _papFx.position.set(0,1.3,-31.0); scene.add(_papFx);
+  for(let i=0;i<3;i++){ const r=new THREE.Mesh(new THREE.TorusGeometry(.5-i*.1,.02,6,24),new THREE.MeshBasicMaterial({color:0x3399ff})); r.rotation.set(Math.random()*3,Math.random()*3,0); r._sx=(.4+i*.3)*(i%2?1:-1); _papFx.add(r); }
+  for(let i=0;i<5;i++){ const a=i/5*Math.PI*2; const rn=new THREE.Mesh(new THREE.BoxGeometry(.06,.14,.02),new THREE.MeshBasicMaterial({color:0x66ccff})); rn.position.set(Math.cos(a)*.62,0,Math.sin(a)*.62); _papFx.add(rn); }
+  // --- mystery box light pillar (hidden until active) ---
+  _boxPillar=new THREE.Mesh(new THREE.CylinderGeometry(.5,.7,8,12,1,true),new THREE.MeshBasicMaterial({color:0xffcc44,transparent:true,opacity:.14,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending}));
+  _boxPillar.position.y=4; _boxPillar.visible=false; if(typeof mystGrp!=='undefined') mystGrp.add(_boxPillar);
+  _movePillar=new THREE.Mesh(new THREE.CylinderGeometry(.4,.6,10,12,1,true),new THREE.MeshBasicMaterial({color:0x66ccff,transparent:true,opacity:.2,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending}));
+  _movePillar.position.y=5; _movePillar.visible=false; scene.add(_movePillar);
+  setPower(false); // start on emergency power
+}
+function _noise1(t){ return Math.sin(t)*.5+Math.sin(t*2.3+1.7)*.3+Math.sin(t*5.1+4.2)*.2; }
+function updateAtmosphere(dt,now){
+  // flicker (only when powered)
+  if(POWER_ON){ const t=now*.004; for(const f of _FLICKER){ const n=_noise1(t+f.seed); f.l.intensity=f.base*(.85+.15*n)*(Math.random()<.015?.5:1); } }
+  // rain
+  if(_rain){ const dm=_rain._dm; for(let i=0;i<_rain._N;i++){ const p=_rainP[i]; p.y-=dt*15; if(p.y<.1){p.y=6;p.x=11+Math.random()*26;p.z=-11+Math.random()*22;} dm.position.set(p.x,p.y,p.z); dm.updateMatrix(); _rain.setMatrixAt(i,dm.matrix); } _rain.instanceMatrix.needsUpdate=true; }
+  // lightning
+  _lightT-=dt;
+  if(_lightT<=0){ _flash=.14; _lightLight.intensity=9; _lightT=14+Math.random()*22; try{SFX('thunder');}catch(e){} }
+  if(_flash>0){ _flash-=dt; _lightLight.intensity=(_flash>.07?9:2.5); if(_flash<=0)_lightLight.intensity=0; }
+  // dust drift
+  if(_dust){ _dust.rotation.y+=dt*.02; _dust.position.y=Math.sin(now*.0003)*.2; }
+  // PaP idle
+  if(_papFx){ _papFx.rotation.y+=dt*.4; _papFx.children.forEach(c=>{ if(c._sx) c.rotation.z+=dt*c._sx; }); }
+  // mystery box pillar visible while active
+  if(_boxPillar) _boxPillar.visible=(typeof mystState!=='undefined'&&(mystState==='spinning'||mystState==='offer'));
+  // move pillar fade
+  if(_movePillar&&_movePillar.visible){ _movePillarT-=dt; _movePillar.material.opacity=Math.max(0,.2*(_movePillarT/3)); _movePillar.rotation.y+=dt; if(_movePillarT<=0)_movePillar.visible=false; }
+  // bottle arcs (perk purchase)
+  for(let i=BOTTLE_ANIMS.length-1;i>=0;i--){ const b=BOTTLE_ANIMS[i]; b.t+=dt; const k=b.t/1.1; if(k>=1){ scene.remove(b.m); BOTTLE_ANIMS.splice(i,1); continue; } const tgt=CAM.position; b.m.position.lerpVectors(b.from,tgt,k); b.m.position.y+=Math.sin(k*Math.PI)*1.2; b.m.rotation.x+=dt*8; b.m.rotation.y+=dt*6; }
+}
 
 function dressMap(){
   const H=4.2;
@@ -2351,6 +2430,8 @@ function moveMysteryBox(){
   const p=pick.p;
   mystGrp.position.set(p.x,0,p.z);
   mystLight.position.set(p.x,2.5,p.z);
+  // "box moved" light pillar at the new spot, visible across the map
+  if(_movePillar){ _movePillar.position.set(p.x,5,p.z); _movePillar.visible=true; _movePillar.material.opacity=.2; _movePillarT=3; }
   // Update interactable position
   const it=INTERACTABLES.find(i=>i.type==='mystery');
   if(it){it.x=p.x;it.z=p.z;}
@@ -2721,6 +2802,7 @@ const INTERACTABLES=[
   // ---- mystery box (starts in foyer) + pack-a-punch (lab) ----
   {type:'mystery',x:0,z:28,range:2.4,cost:950,label:'Mystery Box'},
   {type:'pap',x:0,z:-30.4,range:2.6,cost:2500,label:'Pack-a-Punch'},
+  {type:'power',x:-10.4,z:-30,range:2.4,cost:1500,label:'Power Switch'},
   // ---- teleporter (Lab pad <-> Foyer pad) ----
   {type:'teleport',x:-7,z:-28,range:2.0,tx:8, tz:30, troom:'foyer',label:'Teleporter → Foyer'},
   {type:'teleport',x:8, z:30, range:2.0,tx:-7,tz:-28,troom:'lab',  label:'Teleporter → Lab'},
@@ -3413,9 +3495,19 @@ function doInteract(){
   else if(near.type==='mystery') handleMystery(near);
   else if(near.type==='pap') handlePAP(near);
   else if(near.type==='teleport') handleTeleport(near);
+  else if(near.type==='power') handlePower(near);
+}
+
+function handlePower(it){
+  if(POWER_ON){ flashMsg('Power is already on'); return; }
+  if(PL.points<it.cost){ flashMsg('Not enough points! (Need '+it.cost+')'); return; }
+  PL.points-=it.cost;
+  setPower(true);
+  updateHUD();
 }
 
 function handleTeleport(it){
+  if(!POWER_ON){ flashMsg('⚡ Teleporter needs POWER (Lab)'); return; }
   if(it.troom && ROOMS[it.troom] && !ROOMS[it.troom].open){ flashMsg('Destination is sealed — open it first'); return; }
   SFX('pap');
   PL.pos.x=it.tx; PL.pos.z=it.tz; PL.vel.set(0,0,0);
@@ -3456,14 +3548,32 @@ function handleBuy(it){
   updateHUD();
 }
 
+const _PERKICON={juggernog:'🍺',double_tap:'🔫',speed_cola:'⚡',stamin_up:'💟',phd:'💥',deadshot:'🎯',mule_kick:'🎒'};
+const _PERKCOL={juggernog:0xdd1111,speed_cola:0x1111dd,double_tap:0xdd7700,stamin_up:0x11dd11,phd:0xdd11aa,deadshot:0xddaa11,mule_kick:0x33bb33};
+function perkJingle(pk){
+  try{ const ac=getAC(),now=ac.currentTime,mb=getMB();
+    const tunes={juggernog:[392,494,587,784],speed_cola:[523,659,784,1047],double_tap:[440,554,440,659],stamin_up:[587,659,784,880],phd:[330,392,494,392],deadshot:[659,784,988,784],mule_kick:[349,440,523,440]};
+    (tunes[pk]||[523,659,784]).forEach((f,i)=>{const o=ac.createOscillator(),g=ac.createGain();o.type='triangle';o.frequency.value=f;g.gain.setValueAtTime(0,now+i*.13);g.gain.linearRampToValueAtTime(.13,now+i*.13+.02);g.gain.exponentialRampToValueAtTime(.001,now+i*.13+.26);o.connect(g);g.connect(mb);o.start(now+i*.13);o.stop(now+i*.13+.3);});
+  }catch(e){}
+}
+function perkIconFly(pk){
+  const el=document.createElement('div'); el.textContent=_PERKICON[pk]||'★';
+  el.style.cssText='position:absolute;left:50%;top:52%;font-size:44px;z-index:60;transform:translate(-50%,-50%) scale(2.6);transition:all 1s cubic-bezier(.35,0,.2,1);pointer-events:none;filter:drop-shadow(0 0 12px #fff);';
+  document.body.appendChild(el);
+  requestAnimationFrame(()=>{el.style.left='36px';el.style.top='50%';el.style.transform='translate(-50%,-50%) scale(1)';el.style.opacity='.25';});
+  setTimeout(()=>el.remove(),1150);
+}
 function handlePerk(it){
+  if(!POWER_ON){ flashMsg('⚡ Turn on the POWER first (in the Lab)'); return; }
   if(PL.perks.has(it.perkKey)){flashMsg(`Already have ${it.label}!`);return;}
   if(PL.points<it.cost){flashMsg('Not enough points!');return;}
   PL.points-=it.cost;PL.perks.add(it.perkKey);
   if(it.perkKey==='juggernog'){PL.maxHealth=250;PL.health=Math.min(PL.health+150,250);}
-  SFX('perk');flashMsg(`${it.label}! — ${it.desc}`);
-  updateHUD();refreshPerks();
-  updateWSlots();
+  perkJingle(it.perkKey); flashMsg(`${it.label}! — ${it.desc}`);
+  // glowing bottle arcs from the machine to the player (drink)
+  try{ const b=new THREE.Mesh(cyl(.06,.08,.28,10),new THREE.MeshBasicMaterial({color:_PERKCOL[it.perkKey]||0xffffff})); b.position.set(it.x,1.4,it.z); scene.add(b); BOTTLE_ANIMS.push({m:b,from:new THREE.Vector3(it.x,1.4,it.z),t:0}); }catch(e){}
+  perkIconFly(it.perkKey);
+  updateHUD();refreshPerks();updateWSlots();
 }
 
 // Boss HP bar — driven every frame from the main loop so it tracks the fight live
@@ -3967,6 +4077,8 @@ function activeSpawns(){
 
 function startRound(r){
   round=r;roundActive=true;spawned=0;PL.roundKills=0;
+  // Phase 3: fog thickens slightly every 5 rounds
+  if(scene.fog){ const step=Math.floor(r/5); scene.fog.near=Math.max(6,9-step); scene.fog.far=Math.max(26,50-r*1.1); }
   const boss=r%5===0;
   totalThisRound=boss?15+Math.floor(r):6+r*2;
   if(r>5&&!boss) totalThisRound+=Math.floor((r-5)*1.5);
@@ -4340,6 +4452,7 @@ function loop(){
   updateParticles(dt);
   updateTracers(now);
   updateDoorAnims(dt);
+  updateAtmosphere(dt,now);
   if(PL.alive&&PL.health<PL.maxHealth&&now-PL.lastDamageTime>6000){
     PL.health=Math.min(PL.maxHealth,PL.health+3*dt);
     updateHUD();
@@ -4357,6 +4470,7 @@ function loop(){
   if(Math.floor(now/100)!==Math.floor((now-dt*1000)/100)){updateHUD();updatePUTimers();}
   renderFrame();
 }
+livingAtmosphere(); // Phase 3+4 setup — now that POWER_ON, mystGrp, PaP etc. all exist
 try{ renderer.compile(scene, CAM); }catch(e){} // pre-compile map shaders at load (avoid mid-game compile hitches)
 loop();
 </script>
