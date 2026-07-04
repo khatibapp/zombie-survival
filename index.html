@@ -866,8 +866,9 @@ function renderFrame(){
 sizeRenderer(); // apply the resolution cap now that composer + CAM exist
 
 // ================= PHASE 1: REAL ASSETS (IBL + PBR textures + film grade) =================
+// NOTE: called later (after materials `M` and the map exist) — see phase1Assets() call.
 let _grainPass=null, _assetsTotal=0, _assetsLoaded=0;
-(function phase1Assets(){
+function phase1Assets(){
   // --- Image-based lighting from a night HDRI (reflections + ambient on all PBR mats) ---
   try{
     const pmrem=new THREE.PMREMGenerator(renderer); pmrem.compileEquirectangularShader();
@@ -918,7 +919,7 @@ let _grainPass=null, _assetsTotal=0, _assetsLoaded=0;
       composer.addPass(_grainPass);
     }catch(e){ console.warn('grain pass failed',e); }
   }
-})();
+}
 
 // Graphics quality presets + live FPS overlay (dev menu: K cycles the preset)
 const _fpsEl=document.createElement('div');
@@ -1992,6 +1993,7 @@ function buildMap(){
 
 const PERK_ORBS=[]; // global — animated in game loop
 buildMapNew(); // OLD buildMap() is intentionally NOT called — clean new layout, nothing old left behind
+phase1Assets(); // load real PBR textures + IBL + film-grade pass (now that materials M exist)
 renderer.shadowMap.needsUpdate = true; // bake static shadows now that the map exists
 
 function buildMapNew(){
