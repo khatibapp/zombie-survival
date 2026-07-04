@@ -905,15 +905,16 @@ function phase1Assets(){
   if(composer && typeof THREE.ShaderPass==='function'){
     try{
       _grainPass=new THREE.ShaderPass({
-        uniforms:{ tDiffuse:{value:null}, uTime:{value:0}, uGrain:{value:0.05}, uVig:{value:1.1} },
+        uniforms:{ tDiffuse:{value:null}, uTime:{value:0}, uGrain:{value:0.05}, uVig:{value:1.1}, uDesat:{value:0.0} },
         vertexShader:'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
         fragmentShader:[
-          'varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform float uGrain; uniform float uVig;',
+          'varying vec2 vUv; uniform sampler2D tDiffuse; uniform float uTime; uniform float uGrain; uniform float uVig; uniform float uDesat;',
           'float rand(vec2 c){return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453);}',
           'void main(){',
           '  vec4 col=texture2D(tDiffuse,vUv);',
           '  float g=(rand(vUv+fract(uTime))-0.5)*uGrain; col.rgb+=g;',
           '  vec2 d=vUv-0.5; float vig=1.0-dot(d,d)*uVig*2.2; col.rgb*=clamp(vig,0.32,1.0);',
+          '  float lum=dot(col.rgb,vec3(0.299,0.587,0.114)); col.rgb=mix(col.rgb, vec3(lum)*vec3(1.1,0.9,0.85), uDesat);',
           '  gl_FragColor=col;',
           '}'
         ].join('\n')
@@ -3032,6 +3033,21 @@ document.getElementById('pbtn').addEventListener('click',()=>{
   if(_ac) _ac.resume(); else _ac=new (window.AudioContext||window.webkitAudioContext)();
   CVS.requestPointerLock();
 });
+// Phase 8: asset loading gate + progress bar (ENTER unlocks once real assets load)
+(function loadingGate(){
+  const btn=document.getElementById('pbtn'); if(!btn) return;
+  const bar=document.createElement('div'); bar.style.cssText='width:260px;height:9px;margin:12px auto 0;background:rgba(255,255,255,.12);border-radius:5px;overflow:hidden;';
+  const fill=document.createElement('div'); fill.style.cssText='height:100%;width:0%;background:linear-gradient(90deg,#7a0000,#ff5555);transition:width .18s;'; bar.appendChild(fill);
+  const lbl=document.createElement('div'); lbl.style.cssText='text-align:center;color:#b7a98f;font:12px monospace;margin-top:5px;letter-spacing:.05em;'; lbl.textContent='Loading assets…';
+  btn.parentNode.insertBefore(bar,btn.nextSibling); btn.parentNode.insertBefore(lbl,bar.nextSibling);
+  const t0=Date.now(); btn.disabled=true; btn.style.opacity='.45'; btn.style.pointerEvents='none';
+  const iv=setInterval(()=>{
+    const tot=(typeof _assetsTotal!=='undefined')?_assetsTotal:0, ld=(typeof _assetsLoaded!=='undefined')?_assetsLoaded:0;
+    const p=tot>0?ld/tot:(Date.now()-t0>1200?1:0);
+    fill.style.width=Math.round(p*100)+'%'; lbl.textContent='Loading assets… '+Math.round(p*100)+'%';
+    if(p>=1||Date.now()-t0>6000){ clearInterval(iv); btn.disabled=false; btn.style.opacity='1'; btn.style.pointerEvents='auto'; bar.style.display='none'; lbl.style.display='none'; }
+  },110);
+})();
 document.addEventListener('click',()=>{if(!locked&&PL.alive)CVS.requestPointerLock();});
 document.addEventListener('pointerlockchange',()=>{
   locked=!!document.pointerLockElement;
@@ -4389,7 +4405,16 @@ function loop(){
     o.orbGlow.material.opacity=.18+Math.sin(o.t*1.3)*.12;
   }
   updateBossHP();
-  if(!locked||!PL.alive){renderFrame();return;}
+  if(!locked||!PL.alive){
+    // Phase 8: live menu backdrop (slow drift) + death slow-mo desaturation & camera drop
+    if(!gameStarted){ const a=now*0.00018; CAM.position.set(Math.cos(a)*5.5, 2.3+Math.sin(now*0.0004)*0.5, 4.5+Math.sin(a)*5.5); CAM.lookAt(0,1.5,-3); }
+    if(!PL.alive){
+      if(_grainPass) _grainPass.uniforms.uDesat.value=Math.min(1,_grainPass.uniforms.uDesat.value+dt*1.1);
+      CAM.position.y += (0.55 - CAM.position.y)*Math.min(1,dt*1.4);
+    }
+    renderFrame(); return;
+  }
+  if(_grainPass && _grainPass.uniforms.uDesat.value>0) _grainPass.uniforms.uDesat.value=Math.max(0,_grainPass.uniforms.uDesat.value-dt*3);
   const hpPct2=PL.health/PL.maxHealth;
   if(hpPct2<0.3){
     heartbeatT-=dt;
