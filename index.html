@@ -847,9 +847,13 @@ let composer=null, bloomPass=null;
     composer.setSize(innerWidth,innerHeight);
   }catch(e){ console.warn('PostFX disabled:',e); composer=null; }
 })();
-let bloomEnabled=true; // toggle in dev menu (B) if it costs too much FPS
+let bloomEnabled=true;
+// ALWAYS render through the composer once it exists — never switch to direct
+// renderer.render(), because that switch forces a full shader recompile of every
+// material at once ("freezes really bad" when toggling bloom). Bloom on/off just
+// enables/disables the bloom PASS, keeping the render path constant.
 function renderFrame(){
-  if(composer && bloomEnabled){ try{ composer.render(); return; }catch(e){ console.warn('composer failed, falling back',e); composer=null; } }
+  if(composer){ try{ composer.render(); return; }catch(e){ console.warn('composer failed, falling back',e); composer=null; } }
   renderer.render(scene,CAM);
 }
 sizeRenderer(); // apply the resolution cap now that composer + CAM exist
@@ -1067,9 +1071,13 @@ const TEX={};
 })();
 
 // ---- Geometry helpers ----
-function box(w,h,d){return new THREE.BoxGeometry(w,h,d);}
-function cyl(rt,rb,h,s=10){return new THREE.CylinderGeometry(rt,rb,h,s);}
-function sph(r,ws=10,hs=8){return new THREE.SphereGeometry(r,ws,hs);}
+// Geometry cache — identical shapes (zombie body parts, repeated walls, gun parts)
+// share ONE geometry instead of reallocating. Big GC/CPU win on zombie spawns.
+// Safe: nothing in the game disposes or mutates geometry (only mesh transforms).
+const _geoCache={};
+function box(w,h,d){const k='b'+w+'|'+h+'|'+d;return _geoCache[k]||(_geoCache[k]=new THREE.BoxGeometry(w,h,d));}
+function cyl(rt,rb,h,s=10){const k='c'+rt+'|'+rb+'|'+h+'|'+s;return _geoCache[k]||(_geoCache[k]=new THREE.CylinderGeometry(rt,rb,h,s));}
+function sph(r,ws=10,hs=8){const k='s'+r+'|'+ws+'|'+hs;return _geoCache[k]||(_geoCache[k]=new THREE.SphereGeometry(r,ws,hs));}
 
 function mesh(geo,mat,x,y,z,rx=0,ry=0,rz=0){
   const m=new THREE.Mesh(geo,mat);
@@ -2715,7 +2723,7 @@ document.addEventListener('keydown',e=>{
       ['juggernog','double_tap','speed_cola','stamin_up','phd','deadshot','mule_kick'].forEach(p=>PL.perks.add(p));
       PL.maxHealth=250; refreshPerks(); break;
     case 'KeyY': devNextRound(); break;
-    case 'KeyB': bloomEnabled=!bloomEnabled; break;
+    case 'KeyB': bloomEnabled=!bloomEnabled; if(bloomPass) bloomPass.enabled=bloomEnabled; break;
     default: return;
   }
   updateDevHUD();updateHUD();
@@ -3628,7 +3636,7 @@ class Zombie{
     if(dist>0.88||dY>2){
       const step=this.spd*dt;
       const baseA=Math.atan2(dx,dz);
-      const tries=[0,.22,-.22,.45,-.45,.7,-.7,.95,-.95,1.2,-1.2,1.5,-1.5,1.9,-1.9,2.4,-2.4,Math.PI];
+      const tries=ZANGLES; // shared constant (was reallocated per zombie per frame)
       let moved=false;
       for(const da of tries){
         const a=baseA+da;
@@ -3753,6 +3761,7 @@ class Zombie{
 }
 
 // ===== WAVE SYSTEM =====
+const ZANGLES=[0,.22,-.22,.45,-.45,.7,-.7,.95,-.95,1.2,-1.2,1.5,-1.5,1.9,-1.9,2.4,-2.4,Math.PI];
 let ZOMBIES=[];
 let round=1,roundActive=false,spawned=0,totalThisRound=0;
 let spawnIV=null;
@@ -4160,6 +4169,7 @@ function loop(){
   if(Math.floor(now/100)!==Math.floor((now-dt*1000)/100)){updateHUD();updatePUTimers();}
   renderFrame();
 }
+try{ renderer.compile(scene, CAM); }catch(e){} // pre-compile map shaders at load (avoid mid-game compile hitches)
 loop();
 </script>
 </body>
