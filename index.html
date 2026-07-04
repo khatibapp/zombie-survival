@@ -301,12 +301,18 @@ function toggleMute(){
   if(btn){ btn.textContent=MUTED?'🔇 MUTED':'🔊 MUTE'; btn.classList.toggle('muted',MUTED); }
 }
 
+// Cached white-noise buffer — was regenerated (thousands of Math.random() calls)
+// on EVERY shot/hit, which stalled the main thread. Generate once, reuse forever.
+// Callers always stop their source early, so a longer shared buffer is fine.
+let _noiseBuf = null;
 function makeNoiseBuf(ac, dur) {
-  const len = Math.ceil(ac.sampleRate * dur);
-  const buf = ac.createBuffer(1, len, ac.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  return buf;
+  if (!_noiseBuf || _noiseBuf.sampleRate !== ac.sampleRate) {
+    const len = Math.ceil(ac.sampleRate * 2); // 2s shared buffer covers every SFX duration
+    _noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
+    const d = _noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return _noiseBuf;
 }
 
 function SFX(type) {
@@ -803,12 +809,20 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05; // lower = more contrast/mood (was washing out flat)
 document.body.insertBefore(renderer.domElement, document.body.firstChild);
 
-window.addEventListener('resize', () => {
-  renderer.setSize(innerWidth, innerHeight);
-  CAM.aspect = innerWidth / innerHeight;
-  CAM.updateProjectionMatrix();
-  if(composer) composer.setSize(innerWidth, innerHeight);
-});
+// Cap internal render resolution (upscaled via CSS). Huge fill-rate saver on
+// 4K / ultrawide fullscreen — the main reason "it lags no matter the GPU".
+const RENDER_MAXPX = 2300000; // ~2048x1120; no effect at/below this (e.g. 1280x720)
+function sizeRenderer(){
+  const px = innerWidth*innerHeight;
+  const s = px>RENDER_MAXPX ? Math.sqrt(RENDER_MAXPX/px) : 1;
+  const rw = Math.max(2,Math.round(innerWidth*s)), rh = Math.max(2,Math.round(innerHeight*s));
+  renderer.setSize(rw, rh, false);
+  renderer.domElement.style.width = innerWidth+'px';
+  renderer.domElement.style.height = innerHeight+'px';
+  CAM.aspect = innerWidth/innerHeight; CAM.updateProjectionMatrix();
+  if(composer) composer.setSize(rw, rh);
+}
+window.addEventListener('resize', sizeRenderer);
 
 // ---- Scene & Camera ----
 const scene = new THREE.Scene();
@@ -838,6 +852,7 @@ function renderFrame(){
   if(composer && bloomEnabled){ try{ composer.render(); return; }catch(e){ console.warn('composer failed, falling back',e); composer=null; } }
   renderer.render(scene,CAM);
 }
+sizeRenderer(); // apply the resolution cap now that composer + CAM exist
 
 // ---- Lighting (Kino der Toten: moonlight + warm chandeliers) ----
 // Cold moonlight raking down through the shattered roof — the one shadow-caster
@@ -1592,6 +1607,17 @@ function buildMap(){
   const circMesh=new THREE.Mesh(circGeo,circMat);
   circMesh.rotation.x=-Math.PI/2;circMesh.position.set(0,.02,-38.5);scene.add(circMesh);
 
+  // ===== TELEPORTER MAINFRAME PAD (main room corner, links to the Factory) =====
+  {
+    const mfGlow=new THREE.MeshBasicMaterial({color:0x66ccff});
+    const pad=new THREE.Mesh(new THREE.CircleGeometry(1.4,24),new THREE.MeshBasicMaterial({color:0x1a3a66,transparent:true,opacity:.45,side:THREE.DoubleSide}));
+    pad.rotation.x=-Math.PI/2;pad.position.set(-10,.03,-10);scene.add(pad);
+    const padRing=new THREE.Mesh(new THREE.TorusGeometry(1.4,.07,10,32),mfGlow);padRing.rotation.x=-Math.PI/2;padRing.position.set(-10,.06,-10);scene.add(padRing);
+    for(let i=0;i<4;i++){const a=i/4*Math.PI*2;mesh(cyl(.09,.11,3,10),std(0x2a3038,0.5,0.7),-10+Math.cos(a)*1.5,1.5,-10+Math.sin(a)*1.5);}
+    mesh(box(2.6,.3,2.6),std(0x14171a,0.7,0.5),-10,.12,-10);
+    ptL(-10,2,-10,0x4499ff,1.4,8);
+  }
+
   // ===== OBSTACLES =====
   function crate(x,z,w=1.1,d=1.1){
     mesh(box(w,1.1,d),M.crate,x,.55,z);
@@ -2339,6 +2365,27 @@ const mfMesh=new THREE.Mesh(mfGeo,mfMat);mfMesh.visible=false;
 const mfLight=new THREE.PointLight(0xffaa00,0,8);
 CAM.add(mfMesh);CAM.add(mfLight);
 
+// ===== POOLED BULLET TRACERS (no per-shot allocation) =====
+const _tracerMatN=new THREE.LineBasicMaterial({color:0xffe888,transparent:true,opacity:.65});
+const _tracerMatP=new THREE.LineBasicMaterial({color:0xff1100,transparent:true,opacity:.85});
+const _tracers=[];
+for(let i=0;i<32;i++){
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(6),3));
+  const ln=new THREE.Line(geo,_tracerMatN);ln.visible=false;ln.frustumCulled=false;scene.add(ln);
+  _tracers.push({ln,off:0});
+}
+let _tracerIdx=0;
+function spawnTracer(from,to,pap){
+  const t=_tracers[_tracerIdx];_tracerIdx=(_tracerIdx+1)%_tracers.length;
+  const p=t.ln.geometry.attributes.position;
+  p.array[0]=from.x;p.array[1]=from.y;p.array[2]=from.z;
+  p.array[3]=to.x;p.array[4]=to.y;p.array[5]=to.z;p.needsUpdate=true;
+  t.ln.material=pap?_tracerMatP:_tracerMatN;
+  t.ln.visible=true;t.off=performance.now()+(pap?80:45);
+}
+function updateTracers(now){ for(const t of _tracers) if(t.ln.visible&&now>t.off) t.ln.visible=false; }
+
 // ===== INTERACTABLES =====
 const INTERACTABLES=[
   // buy walls main room
@@ -2364,6 +2411,9 @@ const INTERACTABLES=[
   {type:'buy',x:-69.4,z:6, range:2.3,weaponKey:'scar',cost:1600,label:'SCAR-H'},
   // crypt
   {type:'buy',x:-10.4,z:-58,range:2.3,weaponKey:'kar98',cost:1200,label:'Kar98k'},
+  // teleporter network (Factory pad <-> Main mainframe pad)
+  {type:'teleport',x:-64,z:0,   range:1.9,tx:-10,tz:-10,troom:'main',   label:'Teleporter → Main'},
+  {type:'teleport',x:-10,z:-10, range:1.9,tx:-64,tz:0,  troom:'factory',label:'Teleporter → Factory'},
   // perks
   {type:'perk',x:-10.5,z:-10.5,range:2.3,perkKey:'juggernog', cost:2500,label:'Juggernog',   desc:'250 max HP'},
   {type:'perk',x:10.5, z:-10.5,range:2.3,perkKey:'double_tap',cost:2500,label:'Double Tap',  desc:'2× fire rate'},
@@ -2676,17 +2726,8 @@ function doShoot(){
     const dir=new THREE.Vector3(
       (Math.random()-.5)*sp*2,(Math.random()-.5)*sp*2,-1
     ).normalize().applyQuaternion(CAM.quaternion);
-    // Bullet tracer — red for PAP, yellow-white for normal
-    if(SETTINGS.tracers){
-      const tCol=w.pap?0xff1100:0xffe888;
-      const tOp=w.pap?.85:.65;
-      const tEnd=CAM.position.clone().addScaledVector(dir,60);
-      const tgeo=new THREE.BufferGeometry().setFromPoints([CAM.position.clone(),tEnd]);
-      const tmat=new THREE.LineBasicMaterial({color:tCol,transparent:true,opacity:tOp});
-      const tline=new THREE.Line(tgeo,tmat);
-      scene.add(tline);
-      setTimeout(()=>scene.remove(tline),w.pap?80:45);
-    }
+    // Bullet tracer — pooled (no per-pellet allocation or setTimeout)
+    if(SETTINGS.tracers) spawnTracer(CAM.position, CAM.position.clone().addScaledVector(dir,60), w.pap);
 
     let hitZombie=false;
     for(const z of ZOMBIES){
@@ -3079,6 +3120,16 @@ function doInteract(){
   else if(near.type==='perk') handlePerk(near);
   else if(near.type==='mystery') handleMystery(near);
   else if(near.type==='pap') handlePAP(near);
+  else if(near.type==='teleport') handleTeleport(near);
+}
+
+function handleTeleport(it){
+  if(it.troom && ROOMS[it.troom] && !ROOMS[it.troom].open){ flashMsg('Destination is sealed — open it first'); return; }
+  SFX('pap');
+  PL.pos.x=it.tx; PL.pos.z=it.tz; PL.vel.set(0,0,0);
+  const df=document.getElementById('dmgflash');
+  if(df){ df.style.background='rgba(80,150,255,.55)'; setTimeout(()=>df.style.background='rgba(180,0,0,0)',220); }
+  shakeCam(.12); flashMsg('⚡ TELEPORTED');
 }
 
 function handleBuy(it){
@@ -4000,6 +4051,7 @@ function loop(){
   }
   ZOMBIES=ZOMBIES.filter(z=>!z.update(dt,PL.pos,now));
   updateParticles(dt);
+  updateTracers(now);
   if(PL.alive&&PL.health<PL.maxHealth&&now-PL.lastDamageTime>6000){
     PL.health=Math.min(PL.maxHealth,PL.health+3*dt);
     updateHUD();
