@@ -2190,7 +2190,7 @@ function livingAtmosphere(){
   // --- emergency red lights (on until power) ---
   for(const s of [[0,0],[0,-22],[0,22],[-24,0],[24,0]]){ const l=new THREE.PointLight(0xff2a12,1.3,17); l.position.set(s[0],3.4,s[1]); scene.add(l); _EMERGENCY.push(l); }
   // --- power switch: main breaker in the BASEMENT Power Room (x0,z28 @ fy-4.5); requires a cellar run ---
-  { const px=-30,pz=-20,py=0, mt=std(0x14161a,.5,.6); // relocated from the basement to the ground-floor Morgue
+  { const px=-30,pz=-20,py=-0.55, mt=std(0x14161a,.5,.6); // ground-floor Morgue; py seats the cabinet base on the floor (was floating)
     // breaker cabinet + flanking fuse boxes
     const panel=new THREE.Mesh(box(1.2,1.5,.3),mt); panel.position.set(px,py+1.3,pz); panel.castShadow=true; scene.add(panel);
     mesh(box(.5,1.1,.28),std(0x0e1013,.5,.7),px-1.0,py+1.2,pz); mesh(box(.5,1.1,.28),std(0x0e1013,.5,.7),px+1.0,py+1.2,pz);
@@ -2199,6 +2199,7 @@ function livingAtmosphere(){
   }
   // --- hidden gramophones (music easter egg) ---
   for(const gp of [[-35,-8],[10,32],[36,8]]){
+    const stand=new THREE.Mesh(box(.62,.46,.62),std(0x1a120a,.7,.05)); stand.position.set(gp[0],.23,gp[1]); stand.castShadow=true; stand.receiveShadow=true; scene.add(stand); // was floating — seat the gramophone on a stand
     const base=new THREE.Mesh(box(.5,.32,.5),std(0x2a1a0c,.6,.1)); base.position.set(gp[0],.62,gp[1]); base.castShadow=true; scene.add(base);
     const horn=new THREE.Mesh(new THREE.CylinderGeometry(.22,.05,.36,10,1,true),(M.brass||std(0x6a5320,.3,.95))); horn.position.set(gp[0],.98,gp[1]); horn.rotation.z=.7; scene.add(horn);
     const disc=new THREE.Mesh(cyl(.16,.16,.02,14),std(0x0a0a0a,.4,.2)); disc.position.set(gp[0],.79,gp[1]); scene.add(disc);
@@ -2285,8 +2286,7 @@ function dressMap(){
     const cx=(r.x0+r.x1)/2,cz=(r.z0+r.z1)/2,w=r.x1-r.x0,d=r.z1-r.z0;
     deco(box(w-.2,.26,.12),wood,cx,.13,r.z0+.14); deco(box(w-.2,.26,.12),wood,cx,.13,r.z1-.14);           // baseboards
     deco(box(.12,.26,d-.2),wood,r.x0+.14,.13,cz); deco(box(.12,.26,d-.2),wood,r.x1-.14,.13,cz);
-    deco(box(w-.2,.08,.06),wood,cx,1.2,r.z0+.12); deco(box(w-.2,.08,.06),wood,cx,1.2,r.z1-.12);            // chair-rail
-    deco(box(.06,.08,d-.2),wood,r.x0+.12,1.2,cz); deco(box(.06,.08,d-.2),wood,r.x1-.12,1.2,cz);
+    // (chair-rail removed — it ran full-width across doorways, showing as horizontal bars once a door opened)
     deco(box(w-.15,.2,.18),gilt,cx,H-.13,r.z0+.16); deco(box(w-.15,.2,.18),gilt,cx,H-.13,r.z1-.16);        // cornice
     deco(box(.18,.2,d-.15),gilt,r.x0+.16,H-.13,cz); deco(box(.18,.2,d-.15),gilt,r.x1-.16,H-.13,cz);
     for(let i=1;i<=3;i++) deco(box(w-.4,.24,.24),wood,cx,H-.17,r.z0+d*i/4);                                 // ceiling beams
@@ -3091,8 +3091,8 @@ const INTERACTABLES=[
   {type:'perk',x:-9, z:31, range:2.5,perkKey:'juggernog', cost:2500,label:'Juggernog',   desc:'250 max HP'},
   {type:'perk',x:8,  z:-30,range:2.5,perkKey:'speed_cola',cost:2500,label:'Speed Cola',  desc:'2× reload speed'},
   {type:'perk',x:-9, z:-14,range:2.5,perkKey:'deadshot',  cost:2000,label:'Deadshot',    desc:'-60% bullet spread'},
-  {type:'perk',x:-14,z:-9, range:2.5,perkKey:'double_tap',cost:2500,label:'Double Tap',  desc:'2× fire rate'},
-  {type:'perk',x:-14,z:9,  range:2.5,perkKey:'mule_kick', cost:4000,label:'Mule Kick',   desc:'Carry 3 weapons'},
+  {type:'perk',x:-34,z:9,  range:2.6,perkKey:'double_tap',cost:2500,label:'Double Tap',  desc:'2× fire rate'}, // trigger was at (-14,-9), 27u from its machine at (-34,9)
+  {type:'perk',x:-18,z:9,  range:2.6,perkKey:'mule_kick', cost:4000,label:'Mule Kick',   desc:'Carry 3 weapons'}, // trigger was at (-14,9), 4u from its machine at (-18,9)
   {type:'perk',x:14, z:-9, range:2.5,perkKey:'stamin_up', cost:2500,label:'Stamin-Up',   desc:'1.5× movement'},
   {type:'perk',x:34, z:-8, range:2.5,perkKey:'phd',       cost:2500,label:'PhD Flopper', desc:'Explosive landings'},
   // ---- mystery box (starts in foyer) + pack-a-punch (lab) ----
@@ -4305,10 +4305,10 @@ class Zombie{
       const zy=this.pos.y=getFloorH(this.pos.x,this.pos.z,this.pos.y||0); // this zombie's floor level
       if(!blocked(nx,this.pos.z,this.radius,zy)){this.pos.x=nx;moved=true;}
       if(!blocked(this.pos.x,nz,this.radius,zy)){this.pos.z=nz;moved=true;}
-      if(!moved){ // pressed against a prop mid-segment: slip perpendicular + force a fresh path
+      if(!moved){ // jammed on a wall/corner: slip perpendicular AND drop the beeline so we route via A* (not grind into the wall)
         const pa=Math.atan2(mdx,mdz)+(Math.sin(now*.003+this.walkT)>0?1.4:-1.4), sx=Math.sin(pa)*step, sz=Math.cos(pa)*step;
         if(!blocked(this.pos.x+sx,this.pos.z,this.radius,zy))this.pos.x+=sx; else if(!blocked(this.pos.x,this.pos.z+sz,this.radius,zy))this.pos.z+=sz;
-        this.path=null;
+        this.path=null; this._repathT=0; this._hasLOS=false; this._losT=now+500; // force careful A* path-following, suppress re-beeline for 0.5s
       }
       this.grp.rotation.y=Math.atan2(tx-this.pos.x,tz-this.pos.z);
       this.grp.position.set(this.pos.x,getFloorH(this.pos.x,this.pos.z,this.grp.position.y||0),this.pos.z);
@@ -4932,7 +4932,7 @@ function bakeNavGrid(){
   let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
   for(const r of Object.values(ROOMS)){ minX=Math.min(minX,r.x0);maxX=Math.max(maxX,r.x1);minZ=Math.min(minZ,r.z0);maxZ=Math.max(maxZ,r.z1); }
   const pad=1.5; minX-=pad;maxX+=pad;minZ-=pad;maxZ+=pad;
-  const cell=0.6, cols=Math.ceil((maxX-minX)/cell), rows=Math.ceil((maxZ-minZ)/cell), cs=cols*rows, NL=NAV_FYS.length, R=0.34;
+  const cell=0.6, cols=Math.ceil((maxX-minX)/cell), rows=Math.ceil((maxZ-minZ)/cell), cs=cols*rows, NL=NAV_FYS.length, R=0.42; // clearance > zombie radius (0.38) so A* paths stay followable (no wall-hugging jams)
   const walk=new Uint8Array(NL*cs), door=new Int16Array(NL*cs);
   const inRoomsFy=(x,z,fy)=>{ for(const r of Object.values(ROOMS)){ if(Math.abs((r.fy||0)-fy)>1.6)continue; if(x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1)return true; } return false; };
   for(let li=0;li<NL;li++){ const fy=NAV_FYS[li];
@@ -4941,7 +4941,7 @@ function bakeNavGrid(){
   for(let di=0;di<DOOR_LIST.length;di++){ const c=DOOR_LIST[di].col; if(!c)continue; const li=navLayerOf(c.fy||0), fy=NAV_FYS[li];
     const ci0=Math.max(0,Math.floor((c.min.x-R-minX)/cell)), ci1=Math.min(cols-1,Math.floor((c.max.x+R-minX)/cell));
     const ri0=Math.max(0,Math.floor((c.min.z-R-minZ)/cell)), ri1=Math.min(rows-1,Math.floor((c.max.z+R-minZ)/cell));
-    for(let ri=ri0;ri<=ri1;ri++)for(let ci=ci0;ci<=ci1;ci++){ const x=minX+(ci+0.5)*cell,z=minZ+(ri+0.5)*cell; if(inRoomsFy(x,z,fy)){ walk[li*cs+ri*cols+ci]=1; door[li*cs+ri*cols+ci]=di+1; } }
+    for(let ri=ri0;ri<=ri1;ri++)for(let ci=ci0;ci<=ci1;ci++){ const x=minX+(ci+0.5)*cell,z=minZ+(ri+0.5)*cell; if(inRoomsFy(x,z,fy)&&!hitCol(COLS,x,z,R)){ walk[li*cs+ri*cols+ci]=1; door[li*cs+ri*cols+ci]=di+1; } } // only force/tag the actual GAP cells, never the flank walls beside the door
   }
   // vertical portal edges
   const vlink=new Map(); const addLink=(a,b,two)=>{ if(a<0||b<0||a===b)return; if(!vlink.has(a))vlink.set(a,[]); if(vlink.get(a).indexOf(b)<0)vlink.get(a).push(b); if(two){ if(!vlink.has(b))vlink.set(b,[]); if(vlink.get(b).indexOf(a)<0)vlink.get(b).push(a);} };
@@ -4982,7 +4982,9 @@ function navFindPath3(sx,sz,sy,gx,gz,gy){
   if(!found)return null;
   const path=[]; let c=goal; while(c>=0){const k=c%cs,r=(k/cols)|0,cc=k%cols;path.push({x:minX+(cc+0.5)*cell,z:minZ+(r+0.5)*cell});c=came[c];} path.reverse(); return path;
 }
-function navLOS(sx,sz,gx,gz){ const d=Math.hypot(gx-sx,gz-sz), n=Math.ceil(d/0.5); for(let i=1;i<n;i++){const t=i/n; if(blocked(sx+(gx-sx)*t,sz+(gz-sz)*t,0.2))return false;} return true; }
+// LOS uses the zombie body radius (0.38) and a fine step so it only reports "clear" where the whole
+// body can actually walk the straight line — otherwise the beeline steers into a wall/corner and jams.
+function navLOS(sx,sz,gx,gz){ const d=Math.hypot(gx-sx,gz-sz), n=Math.ceil(d/0.4); for(let i=1;i<n;i++){const t=i/n; if(blocked(sx+(gx-sx)*t,sz+(gz-sz)*t,0.38))return false;} return true; }
 // --- debug overlay ---
 let _navDbgPts=null,_navDbgPaths=null;
 function toggleNavDebug(){ NAV.debug=!NAV.debug;
