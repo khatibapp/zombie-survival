@@ -6,7 +6,7 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:#000;overflow:hidden;font-family:'Arial',sans-serif;}
-@keyframes titlePulse{0%,100%{text-shadow:0 0 30px #cc0000,0 0 60px #660000,0 0 120px #330000;}50%{text-shadow:0 0 60px #ff2222,0 0 120px #aa0000,0 0 200px #550000;}}
+@keyframes titlePulse{0%,100%{text-shadow:0 0 18px rgba(190,35,25,.55),0 0 42px rgba(110,8,8,.5),0 4px 7px #000;}50%{text-shadow:0 0 32px rgba(220,60,40,.72),0 0 74px rgba(150,15,10,.6),0 4px 7px #000;}}
 @keyframes flicker{0%,88%,100%{opacity:1;}89%,91%,93%,95%{opacity:.7;}90%,92%,94%,96%{opacity:.9;}}
 @keyframes drip{0%{height:0;opacity:.95;}80%{height:90px;opacity:.8;}100%{height:90px;opacity:0;}}
 @keyframes fadeUp{from{opacity:0;transform:translateY(18px);}to{opacity:1;transform:translateY(0);}}
@@ -21,10 +21,20 @@ body{background:#000;overflow:hidden;font-family:'Arial',sans-serif;}
 #blocker{
   position:fixed;inset:0;z-index:200;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:16px;color:#fff;text-align:center;padding:20px;
-  background:radial-gradient(ellipse at 50% 30%,#1f0008 0%,#0a0005 45%,#000 100%);
-  animation:flicker 10s infinite;
+  gap:15px;color:#e8ddcf;text-align:center;padding:24px;
+  font-family:'Georgia','Times New Roman',serif;
+  background:radial-gradient(ellipse at 50% 24%,#1c0d10 0%,#0a0608 44%,#000 100%);
+  animation:flicker 11s infinite;
 }
+/* slow-rotating occult sigil ring behind the title (pure CSS, no assets) */
+#blocker::before{content:'';position:absolute;top:23%;left:50%;width:min(80vw,560px);height:min(80vw,560px);
+  transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;z-index:1;
+  background:
+    radial-gradient(circle,transparent 57%,rgba(170,30,25,.14) 59%,transparent 62%),
+    radial-gradient(circle,transparent 41%,rgba(90,150,95,.07) 43%,transparent 45%),
+    conic-gradient(from 0deg,transparent 0 7%,rgba(150,25,20,.06) 8% 9%,transparent 10% 100%);
+  animation:slowspin 90s linear infinite;}
+@keyframes slowspin{to{transform:translate(-50%,-50%) rotate(360deg);}}
 .drip{position:absolute;top:0;border-radius:0 0 5px 5px;
   background:linear-gradient(#6b0000,#cc0000 60%,#ff1111);
   animation:drip 3.2s ease-in infinite;}
@@ -37,23 +47,25 @@ body{background:#000;overflow:hidden;font-family:'Arial',sans-serif;}
 .d7{left:91%;width:4px;animation-delay:1s;animation-duration:2.6s;}
 #menu-bg{position:absolute;inset:0;pointer-events:none;z-index:0;
   background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.07) 3px,rgba(0,0,0,.07) 4px);}
-#title{font-size:4.8em;letter-spacing:8px;font-weight:900;line-height:1;
-  color:#ff1111;animation:titlePulse 2.2s ease-in-out infinite,breathe 4s ease-in-out infinite;
-  position:relative;z-index:5;-webkit-text-stroke:1px #550000;margin-bottom:4px;}
-#subt{color:#882222;font-size:.95em;letter-spacing:5px;z-index:5;
+.eyebrow{color:#7a6a4a;font-size:.7em;letter-spacing:10px;z-index:5;text-transform:uppercase;font-family:'Georgia',serif;
+  animation:fadeUp 1s ease .1s both;}
+#title{font-family:'Georgia','Times New Roman',serif;font-size:min(10.5vw,4.6em);letter-spacing:8px;font-weight:900;line-height:.96;
+  color:#efe2cf;text-transform:uppercase;position:relative;z-index:5;margin:2px 0;-webkit-text-stroke:1px rgba(70,0,0,.55);
+  animation:titlePulse 3s ease-in-out infinite,breathe 5s ease-in-out infinite;}
+#subt{color:#9a5a4a;font-size:.9em;letter-spacing:7px;z-index:5;text-transform:uppercase;
   animation:fadeUp 1s ease .4s both;}
 .cbox{background:rgba(80,0,0,.18);border:1px solid rgba(180,0,0,.35);border-radius:6px;
   padding:14px 28px;font-size:.87em;line-height:2.1;color:#c08080;
   max-width:520px;position:relative;z-index:5;animation:fadeUp 1s ease .7s both;}
 .k{color:#ffdd66;font-weight:bold;}
-#pbtn{background:linear-gradient(135deg,#7a0000,#cc0000);color:#fff;
-  border:2px solid #ff4444;border-radius:4px;padding:16px 52px;
-  font-size:1.45em;cursor:pointer;letter-spacing:3px;font-weight:bold;
-  text-shadow:0 2px 4px #000;
-  box-shadow:0 0 24px rgba(200,0,0,.55),inset 0 1px rgba(255,255,255,.1);
+#pbtn{font-family:'Georgia',serif;background:linear-gradient(180deg,#5a0808,#8f0000 55%,#3a0000);color:#f4e6d8;
+  border:1px solid #c23030;border-radius:3px;padding:15px 56px;
+  font-size:min(6vw,1.35em);cursor:pointer;letter-spacing:5px;font-weight:bold;text-transform:uppercase;
+  text-shadow:0 2px 5px #000;
+  box-shadow:0 0 28px rgba(180,20,20,.5),inset 0 1px rgba(255,180,160,.15),inset 0 -8px 16px rgba(0,0,0,.4);
   transition:all .2s;position:relative;z-index:5;animation:fadeUp 1s ease 1s both;}
-#pbtn:hover{background:linear-gradient(135deg,#aa0000,#ff1111);
-  box-shadow:0 0 44px rgba(255,0,0,.65);transform:scale(1.04);}
+#pbtn:hover{background:linear-gradient(180deg,#7a0a0a,#c01010 55%,#500000);
+  box-shadow:0 0 50px rgba(255,30,30,.6),inset 0 1px rgba(255,200,180,.2);transform:scale(1.035);letter-spacing:6px;}
 .vtxt{color:#330000;font-size:.72em;letter-spacing:3px;z-index:5;}
 #settings-panel{margin-top:14px;background:rgba(0,0,0,.6);border:1px solid #2a2a2a;border-radius:5px;padding:12px 18px;z-index:5;position:relative;width:280px;}
 .s-title{color:#555;font-size:.7em;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px;border-bottom:1px solid #222;padding-bottom:6px;}
@@ -72,6 +84,10 @@ body{background:#000;overflow:hidden;font-family:'Arial',sans-serif;}
 
 /* HUD */
 #hud{position:fixed;inset:0;pointer-events:none;z-index:100;display:none;}
+#roomname{position:absolute;top:12px;left:50%;transform:translateX(-50%);
+  font-family:'Georgia',serif;font-size:15px;letter-spacing:6px;text-transform:uppercase;font-weight:bold;
+  color:#c9b48a;text-shadow:0 0 8px rgba(0,0,0,.9),0 1px 2px #000;opacity:0;transition:opacity .5s;
+  border-bottom:1px solid rgba(180,150,90,.35);padding:0 14px 4px;white-space:nowrap;}
 #vign{position:absolute;inset:0;
   background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,.82) 100%);
   pointer-events:none;}
@@ -160,8 +176,9 @@ body{background:#000;overflow:hidden;font-family:'Arial',sans-serif;}
   <div class="drip d1"></div><div class="drip d2"></div><div class="drip d3"></div>
   <div class="drip d4"></div><div class="drip d5"></div><div class="drip d6"></div>
   <div class="drip d7"></div>
-  <div id="title">🧟 ZOMBIE SURVIVAL</div>
-  <div id="subt">THE DEAD WILL NOT REST</div>
+  <div class="eyebrow">· Anno MCMXLIII ·</div>
+  <div id="title">Zombie Survival</div>
+  <div id="subt">The Dead Will Not Rest</div>
   <div class="cbox">
     <span class="k">WASD</span> Move &nbsp;·&nbsp; <span class="k">Mouse</span> Look &nbsp;·&nbsp; <span class="k">LMB</span> Shoot<br>
     <span class="k">R</span> Reload &nbsp;·&nbsp; <span class="k">E</span> Interact (buy / perks / mystery box)<br>
@@ -192,6 +209,7 @@ body{background:#000;overflow:hidden;font-family:'Arial',sans-serif;}
     <div id="pts">⬡ 500</div>
     <div id="rdiv"><div id="rnum">ROUND 1</div><div id="zct"></div></div>
   </div>
+  <div id="roomname"></div>
   <div id="perks"></div>
   <div id="putimers"></div>
   <div id="boss-hp-wrap"><div id="boss-hp-lbl">⚠ BOSS</div><div id="boss-hp-bg"><div id="boss-hp-bar"></div></div></div>
@@ -1195,6 +1213,10 @@ const ROOMS={
   // v3.2 curved crawl-width back-corridor behind the Lab (Morgue <-> Depot loop, faceted arc)
   passage:  {x0:-37,x1:37, z0:-40,z1:-33,fy:0, open:false},
 };
+// C2: display names for the room-name HUD + a cheap point-in-rect lookup (called throttled, not heavy per-frame)
+const ROOM_NAMES={atrium:'Atrium',lab:'Laboratory',foyer:'Grand Foyer',theater:'Grand Theater',courtyard:'Courtyard',morgue:'Morgue',chapel:'Séance Room',depot:'Supply Depot',passage:'Undercroft'};
+function roomNameAt(x,z){ for(const k in ROOMS){ const r=ROOMS[k]; if(x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1) return ROOM_NAMES[k]||k; } return ''; }
+let _roomCheckT=0, _curRoomName=null;
 function inOpenRoom(x,z,y){
   for(const k in ROOMS){ const r=ROOMS[k]; if(r.open && x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1 && (y===undefined||Math.abs(r.fy-y)<2.9)) return true; }
   return false;
@@ -2191,13 +2213,20 @@ function setPower(on){
 function livingAtmosphere(){
   // --- emergency red lights (on until power) ---
   for(const s of [[0,0],[0,-22],[0,22],[-24,0],[24,0]]){ const l=new THREE.PointLight(0xff2a12,1.3,17); l.position.set(s[0],3.4,s[1]); scene.add(l); _EMERGENCY.push(l); }
-  // --- 3 power breakers, one at each power switch's spot (floor-seated cabinet + lever + status LED) ---
+  // C5: 3 power breakers mounted FLUSH to a wall at chest/head height, oriented to FACE INTO their room
+  // (was free-standing on the floor). Each is a group rotated so its front (-z local) points into the room;
+  // the [E] trigger is moved to the same wall spot so you interact from the room side.
+  const _PWR_MOUNT={ '0,-36':{x:0,z:-33.5,ry:0},              // Undercroft: south wall, faces N into the corridor
+                     '-30,-20':{x:-36.5,z:-20,ry:-Math.PI/2}, // Morgue: west wall, faces E into the room
+                     '30,30':{x:34.5,z:30,ry:Math.PI/2} };    // Séance: east wall, faces W into the room
   for(const it of INTERACTABLES){ if(it.type!=='power')continue;
-    const px=it.x,pz=it.z,py=-0.55, mt=std(0x14161a,.5,.6);
-    const panel=new THREE.Mesh(box(1.2,1.5,.3),mt); panel.position.set(px,py+1.3,pz); panel.castShadow=true; scene.add(panel);
-    mesh(box(.5,1.1,.28),std(0x0e1013,.5,.7),px-1.0,py+1.2,pz); mesh(box(.5,1.1,.28),std(0x0e1013,.5,.7),px+1.0,py+1.2,pz);
-    it._lever=new THREE.Mesh(box(.09,.42,.09),std(0x8a2a2a,.4,.6)); it._lever.position.set(px+.28,py+1.25,pz-.18); it._lever.rotation.z=.6; scene.add(it._lever);
-    it._led=new THREE.Mesh(sph(.06,8,6),new THREE.MeshBasicMaterial({color:0xff2200})); it._led.position.set(px-.3,py+1.7,pz-.18); scene.add(it._led);
+    const m=_PWR_MOUNT[it.x+','+it.z]||{x:it.x,z:it.z,ry:0}; it.x=m.x; it.z=m.z; // co-locate trigger with the wall breaker
+    const g=new THREE.Group(); g.position.set(m.x,0,m.z); g.rotation.y=m.ry; scene.add(g);
+    const mt=std(0x14161a,.5,.6), cy=1.3; // wall-mounted centre height
+    const panel=new THREE.Mesh(box(1.2,1.5,.22),mt); panel.position.set(0,cy,0); panel.castShadow=true; g.add(panel);
+    for(const lx of [-.85,.85]){ const b=new THREE.Mesh(box(.42,1.0,.2),std(0x0e1013,.5,.7)); b.position.set(lx,cy-.05,-.02); g.add(b); }
+    it._lever=new THREE.Mesh(box(.09,.42,.09),std(0x8a2a2a,.4,.6)); it._lever.position.set(.28,cy-.05,-.2); it._lever.rotation.z=.6; g.add(it._lever);
+    it._led=new THREE.Mesh(sph(.06,8,6),new THREE.MeshBasicMaterial({color:0xff2200})); it._led.position.set(-.3,cy+.4,-.2); g.add(it._led);
   }
   // --- hidden gramophones (music easter egg) ---
   for(const gp of [[-35,-8],[10,32],[36,8]]){
@@ -2456,10 +2485,13 @@ function buildMapNew(){
     ctx.fillStyle=accent;ctx.font='bold 30px Arial';ctx.fillText('⬡ '+cost,256,172);
     ctx.fillStyle='rgba(255,255,255,.55)';ctx.font='18px Arial';ctx.fillText('[E] to purchase',256,215);
     const tex=new THREE.CanvasTexture(c);tex.encoding=THREE.sRGBEncoding;
-    const mat=new THREE.MeshStandardMaterial({map:tex,emissiveMap:tex,emissive:new THREE.Color(accent),emissiveIntensity:.7,roughness:.5,side:THREE.DoubleSide});
+    // C4: FrontSide (not DoubleSide) so the back never shows mirrored text; add a 2nd plane facing the other way
+    // that reads correctly from behind. Back-to-back, each single-sided -> only one renders per viewpoint (no z-fight).
+    const mat=new THREE.MeshStandardMaterial({map:tex,emissiveMap:tex,emissive:new THREE.Color(accent),emissiveIntensity:.7,roughness:.5,side:THREE.FrontSide});
     const ry={'x+':-Math.PI/2,'x-':Math.PI/2,'z+':0,'z-':Math.PI}[face]||0;
     const ox=face==='x+'?.05:face==='x-'?-.05:0, oz=face==='z+'?.05:face==='z-'?-.05:0;
     const p=new THREE.Mesh(new THREE.PlaneGeometry(2,1),mat);p.rotation.y=ry;p.position.set(x+ox,y+1.1,z+oz);scene.add(p);
+    const pb=new THREE.Mesh(new THREE.PlaneGeometry(2,1),mat);pb.rotation.y=ry+Math.PI;pb.position.set(x+ox,y+1.1,z+oz);scene.add(pb);
     ptL(x+ox*3,y+1.4,z+oz*3,new THREE.Color(accent).getHex(),.6,4);
   }
   function teleporterPad(x,z,col){
@@ -2498,8 +2530,8 @@ function buildMapNew(){
     ptL(x,2,z,0x3388ff,1.4,8);
   }
   teleporterPad(-7,-28,0x66ccff);
-  perkMachine(8,-30,0x1111dd,'Speed Cola','speed');
-  perkMachine(-9,-14,0xddaa11,'Deadshot','dead');
+  perkMachine(8,-30,0x11dd11,'Speed Cola','speed');   // C7: GREEN
+  perkMachine(-9,-14,0x888888,'Deadshot','dead');     // C7: GREY
   buySign(10.7,1.25,-24,'x-','Galil',1200,'#8a9a4a');
   for(const rx of [-9,9]){mesh(box(1.4,2.2,.7),std(0x1a1e22,.5,.6),rx,1.1,-20);const l=new THREE.Mesh(sph(.05,6,5),new THREE.MeshBasicMaterial({color:0x33ff88}));l.position.set(rx+(rx<0?.65:-.65),1.8,-20);scene.add(l);addCol(COLS,rx,-20,.8,.45);}
 
@@ -2538,16 +2570,16 @@ function buildMapNew(){
   { const beam=new THREE.Mesh(cyl(1.8,2.7,TH2,16,1,true),new THREE.MeshBasicMaterial({color:0xbcd0ff,transparent:true,opacity:.08,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending})); beam.position.set(-50,TH2/2,2); scene.add(beam); ptL(-50,TH2-.6,2,0xbcd0ff,1.6,18); }
   // FALLEN chandelier crashed on the floor (landmark of decay)
   { const fc=new THREE.Group(); const r=new THREE.Mesh(new THREE.TorusGeometry(.95,.06,8,20),M.gilt); r.rotation.set(Math.PI/2.3,.3,0); fc.add(r); for(let i=0;i<8;i++){const a=i/8*Math.PI*2; const arm=new THREE.Mesh(cyl(.03,.03,.5,6),M.gilt); arm.position.set(Math.cos(a)*.9,.12,Math.sin(a)*.9); arm.rotation.z=.4; fc.add(arm);} fc.position.set(-30,.3,5); scene.add(fc); addCol(COLS,-30,5,1.1,1.1); }
-  perkMachine(-34,9,0xdd7700,'Double Tap','dtap');
-  perkMachine(-18,9,0x33bb33,'Mule Kick','mule');
+  perkMachine(-34,9,0xdd7700,'Double Tap','dtap');    // C7: ORANGE
+  perkMachine(-18,9,0x116622,'Mule Kick','mule');     // C7: DARK GREEN
   buySign(-30,1.25,-10.7,'z+','M16A1',1200,'#4488ff');
 
   // ===== COURTYARD (east) x11..37 z-11..11 =====
   flr(24,0,26,22,std(0x1a1814,.9,.05)); cei(24,0,26,22,std(0x05060a,.95,0));
   wseg('z',37,-11,11,M.wall); wdoor('x',11,11,37,24,M.wall,'chapel',1750,'Séance Room'); wdoor('x',-11,11,37,24,M.wall,'depot',1500,'Supply Depot');
   ptL(24,4,0,0x8899cc,1.9,28);
-  perkMachine(14,-9,0x11dd11,'Stamin-Up','stam');
-  perkMachine(34,-8,0xdd11aa,'PhD Flopper','phd');
+  perkMachine(14,-9,0xffdd00,'Stamin-Up','stam');     // C7: YELLOW
+  perkMachine(34,-8,0x9911dd,'PhD Flopper','phd');    // C7: PURPLE
   buySign(36.7,1.25,0,'x-','SPAS-12',1500,'#ff6644');
   pillar(20,-6);pillar(30,6);pillar(24,-8); crate(20,7);crate(32,-7);crate(31,6);
 
@@ -2601,7 +2633,14 @@ function buildMapNew(){
     for(let i=1;i<=N;i++){ const x=x0+(x1-x0)*i/N, z=zAt(x); const cx=(px+x)/2, cz=(pz+z)/2, len=Math.hypot(x-px,z-pz), ang=Math.atan2(z-pz,x-px);
       mesh(box(len+.12,2.9,T),M.wall,cx,1.45,cz,0,-ang,0); addCol(COLS,cx,cz,len/2+.12,.45); px=x; pz=z; } }
   wseg('z',-37,-40,-33,M.wall); wseg('z',37,-40,-33,M.wall); // end caps
-  ptL(-18,2.3,-36,0x9a7a5a,1.1,16); ptL(18,2.3,-36,0x9a7a5a,1.1,16); ptL(0,2.4,-38,0x8a6a4a,1.0,17);
+  // C6: brighter + warmer Undercroft lighting + hanging emissive bulbs (MeshBasic bulbs are always-lit & free,
+  // so the passage is navigable even before power; keeps the same 3 point lights — no new lights added).
+  ptL(-22,2.4,-35.8,0xffb060,1.7,17); ptL(0,2.45,-37.5,0xffb866,1.8,18); ptL(22,2.4,-35.8,0xffb060,1.7,17);
+  for(const bx of [-30,-15,0,15,30]){
+    const bulb=new THREE.Mesh(sph(.075,8,6),new THREE.MeshBasicMaterial({color:0xffcf88})); bulb.position.set(bx,2.55,-35); scene.add(bulb);
+    mesh(cyl(.008,.008,.25,4),std(0x1a1610,.6,.3),bx,2.72,-35); // hanging wire
+    const gl=new THREE.Mesh(sph(.22,8,6),new THREE.MeshBasicMaterial({color:0xffaa44,transparent:true,opacity:.11,blending:THREE.AdditiveBlending,depthWrite:false})); gl.position.set(bx,2.55,-35); scene.add(gl);
+  }
   for(const pz2 of [-34.5,-38.4]){ mesh(cyl(.11,.11,70,8),std(0x3a352c,.6,.5),0,2.4,pz2,0,0,Math.PI/2); } // low pipes
   for(let i=0;i<8;i++){ const s=.3+((i*5)%4)*.13; mesh(box(s,s,s),std(0x2a2620,.85,.03),-28+i*8,s/2,-35.5); } // scattered debris
 }
@@ -2685,6 +2724,17 @@ const mystLblCanvas=_mystData.lblCanvas;
 const mystLblCtx=_mystData.lblCtx;
 const mystLblTex=_mystData.lblTex;
 const mystLblMesh=_mystData.lblMesh;
+// C3: open-and-display — a group above the open box that shows the rolling weapon MODELS (built via buildGunMesh,
+// cached in _mystGunCache so nothing is built per-frame). Child of mystGrp so it follows box relocation.
+const _mystDisplayGrp=new THREE.Group(); _mystDisplayGrp.position.set(0,1.7,0); _mystDisplayGrp.visible=false; mystGrp.add(_mystDisplayGrp);
+const _mystGunCache={}; let _mystCycleT=0, _mystShownKey=null;
+function mystDisplayWeapon(key){
+  if(key===_mystShownKey) return;
+  if(_mystShownKey && _mystGunCache[_mystShownKey]) _mystGunCache[_mystShownKey].visible=false;
+  let m=_mystGunCache[key];
+  if(m===undefined){ try{ m=buildGunMesh(key,false); }catch(e){ m=null; } if(m){ m.position.set(-.1,0,0); m.rotation.set(0,Math.PI*0.15,0); m.scale.setScalar(1.7); _mystDisplayGrp.add(m); } _mystGunCache[key]=m; }
+  if(m) m.visible=true; _mystShownKey=key;
+}
 // Keep legacy refs for moveMysteryBox compatibility
 const mystBox=_mystData.bodyMesh; // used for position ref only
 // Solid collider for the box — ONE AABB that tracks the box through relocation (moveMysteryBox updates it).
@@ -3915,7 +3965,7 @@ function handleBuy(it){
 }
 
 const _PERKICON={juggernog:'🍺',double_tap:'🔫',speed_cola:'⚡',stamin_up:'💟',phd:'💥',deadshot:'🎯',mule_kick:'🎒'};
-const _PERKCOL={juggernog:0xdd1111,speed_cola:0x1111dd,double_tap:0xdd7700,stamin_up:0x11dd11,phd:0xdd11aa,deadshot:0xddaa11,mule_kick:0x33bb33};
+const _PERKCOL={juggernog:0xdd1111,speed_cola:0x11dd11,double_tap:0xdd7700,stamin_up:0xffdd00,phd:0x9911dd,deadshot:0x888888,mule_kick:0x116622}; // C7 exact colors
 function perkJingle(pk){
   try{ const ac=getAC(),now=ac.currentTime,mb=getMB();
     const tunes={juggernog:[392,494,587,784],speed_cola:[523,659,784,1047],double_tap:[440,554,440,659],stamin_up:[587,659,784,880],phd:[330,392,494,392],deadshot:[659,784,988,784],mule_kick:[349,440,523,440]};
@@ -4604,7 +4654,7 @@ function updateHUD(){
 
 function refreshPerks(){
   const icons={juggernog:'🍺',double_tap:'🔫',speed_cola:'⚡',stamin_up:'💟',phd:'💥',deadshot:'🎯',mule_kick:'🎒'};
-  const cols={juggernog:'#cc1111',double_tap:'#cc7700',speed_cola:'#1111cc',stamin_up:'#11cc11',phd:'#cc11aa',deadshot:'#ccaa11',mule_kick:'#22bb22'};
+  const cols={juggernog:'#dd1111',double_tap:'#dd7700',speed_cola:'#11dd11',stamin_up:'#ffdd00',phd:'#9911dd',deadshot:'#888888',mule_kick:'#116622'}; // C7 exact colors (HUD icons)
   const el=document.getElementById('perks');el.innerHTML='';
   for(const p of PL.perks){
     const d=document.createElement('div');d.className='pi';
@@ -4734,7 +4784,14 @@ function loop(){
   const lidTarget=(mystState==='idle')?0:1;
   mystLidAngle+=(lidTarget-mystLidAngle)*Math.min(1,dt*4);
   mystLidGrp.rotation.x=-mystLidAngle*1.3;
-  if(mystState==='spinning'){mystGrp.rotation.y+=dt*2;}
+  // C3: mystery box — no spin; the open box displays the rolling weapon models, landing on the final one.
+  if(mystState==='spinning'){ _mystDisplayGrp.visible=true;
+    if(now>_mystCycleT){ _mystCycleT=now+130; mystDisplayWeapon(MYSTERY_POOL[Math.floor(Math.random()*MYSTERY_POOL.length)]); }
+    _mystDisplayGrp.rotation.y+=dt*3.2; _mystDisplayGrp.position.y=1.72+Math.sin(now*.006)*.06;
+  } else if(mystState==='offer'){ _mystDisplayGrp.visible=true;
+    if(mystPendingKey) mystDisplayWeapon(mystPendingKey);
+    _mystDisplayGrp.rotation.y+=dt*1.2; _mystDisplayGrp.position.y=1.72+Math.sin(now*.004)*.05;
+  } else if(_mystDisplayGrp.visible){ _mystDisplayGrp.visible=false; }
   if(mystState==='offer'&&performance.now()>mystOfferExpires)leaveMysteryWeapon();
   for(const o of PERK_ORBS){
     o.t+=dt*1.8;
@@ -4940,6 +4997,9 @@ function loop(){
   }
   checkRoundEnd();updatePrompt();
   if(Math.floor(now/100)!==Math.floor((now-dt*1000)/100)){updateHUD();updatePUTimers();}
+  // C2: room-name HUD — throttled 4×/s, ~9 rect tests, only touches the DOM when the room actually changes
+  if(now>_roomCheckT){ _roomCheckT=now+250; const rn=roomNameAt(PL.pos.x,PL.pos.z);
+    if(rn!==_curRoomName){ _curRoomName=rn; const el=document.getElementById('roomname'); if(el){ el.textContent=rn||''; el.style.opacity=rn?'1':'0'; } } }
   renderFrame();
 }
 livingAtmosphere(); // Phase 3+4 setup — now that POWER_ON, mystGrp, PaP etc. all exist

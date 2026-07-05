@@ -2,7 +2,7 @@
 
 _Living snapshot for prompting. Updated at the end of every Map-V2 part._
 
-**Version:** v3.8.1 (9-room map + 3-switch power; merge reverted, map regressions fixed) · **Repo:** khatibapp/zombie-survival · branch `main`
+**Version:** v3.8.3 (cosmetic/HUD pass: revamped start screen, room-name HUD, open-and-display mystery box, fixed sign back-faces, wall-mounted power switches, Undercroft lighting, exact perk colors) · **Repo:** khatibapp/zombie-survival · branch `main`
 **Ship flow:** bump `package.json` → commit → `git tag vX.Y.Z` → push tag → GitHub Actions builds `ZombieSurvival-Setup-<ver>.exe` + `latest.yml` → in-app updater.
 
 ## What the game is
@@ -18,6 +18,7 @@ Electron desktop app, auto-updates from GitHub Releases. Fully offline. WWII-era
 - [x] **3-SWITCH POWER** (v3.7.0). Power needs finding + throwing **3 switches** (Undercroft, far-west Morgue, far-east Séance); free to flip; power on only at 3/3, then teleporters + PaP unlock. `powerThrown` counter, prompt shows "N of 3".
 - ~~REDESIGN — 9→6 merges~~ (v3.8.0, **REVERTED in v3.8.1** by request — back to 9 rooms).
 - [x] **MAP REGRESSIONS FIXED** (v3.8.1). Reverted the merges (all dividing walls restored); added zombie **no-progress stuck-recovery** (nudge to nearest walkable nav cell after 2.5s); cleared the Morgue drawer that obscured the **Undercroft entrance**; realigned the **M16 wall-buy** trigger to its sign.
+- [x] **COSMETIC/HUD PASS** (v3.8.3). Grim occult-horror start screen (serif title + sigil ring + "Enter the Nightmare"); top-of-screen **room-name HUD** (updates on room change, ~250ms throttle); mystery box now **opens & displays** a cycling weapon model above the open lid (classic CoD, reuses `buildGunMesh`, no spin); wall-buy sign **back-faces** read correctly (back-to-back single-sided planes); **power switches** flush-mounted to walls facing into rooms; **Undercroft** atmospheric lighting (3 warm point lights + always-lit emissive bulbs); **exact perk colors** — Jugg=RED, Stamin-Up=YELLOW, Mule Kick=DARK GREEN, PhD=PURPLE, Speed Cola=GREEN, Double Tap=ORANGE, Deadshot=GREY (machine + HUD icon).
 - [ ] Part 6 — Life pass (clutter, motion, sound, light balance) + per-room theming polish
 
 ## Current map (9 rooms, single ground floor `fy:0`)
