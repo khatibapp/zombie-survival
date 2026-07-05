@@ -4015,7 +4015,8 @@ function handleMystery(it){
 
 function handlePAP(it){
   const w=PL.w;
-  if(w.wonder){flashMsg("Wonder weapons can't be Pack-a-Punched!");return;}
+  // Wonder weapons CAN be Pack-a-Punched now — they keep firing via doWonderWeapon (wonder flag unchanged);
+  // the x3 damage boosts Wunderwaffe's chain (Thundergun already instakills), and they get their PaP name.
   if(w.pap){flashMsg(`${w.name} is already Pack-a-Punched!`);return;}
   if(PL.points<it.cost){flashMsg('Not enough points! (Need 2500)');return;}
   PL.points-=it.cost;
@@ -4696,7 +4697,6 @@ function updatePrompt(){
       else txt=`<span class='pk'>[E]</span> Mystery Box — ${fireSaleTimer>now?10:near.cost} pts${fireSaleTimer>now?' 🔥':''}`;
     } else if(near.type==='pap'){
       if(PL.w.pap) txt=`${PL.w.name} already Pack-a-Punched!`;
-      else if(PL.w.wonder) txt=`Can't Pack-a-Punch wonder weapons`;
       else txt=`<span class='pk'>[E]</span> Pack-a-Punch — 2500 pts`;
     }
     el.innerHTML=txt;el.style.display='block';nearPrompt=true;
