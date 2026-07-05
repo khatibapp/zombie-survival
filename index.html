@@ -1203,12 +1203,7 @@ function inUpperArea(x,z){ return false; } // legacy no-op; verticality handled 
 // Height zones for real verticality: flat floors + stair ramps (interpolated)
 const HZ_FLAT=[]; // {x0,x1,z0,z1,fy}
 const HZ_RAMP=[]; // {x0,x1,z0,z1,y0,y1,axis:'x'|'z'}
-function getFloorH(x,z,curY){
-  for(const rp of HZ_RAMP){ if(x>=rp.x0&&x<=rp.x1&&z>=rp.z0&&z<=rp.z1){ const t=(rp.axis==='z')?(z-rp.z0)/(rp.z1-rp.z0):(x-rp.x0)/(rp.x1-rp.x0); return rp.y0+(rp.y1-rp.y0)*Math.max(0,Math.min(1,t)); } }
-  let best=null;
-  for(const f of HZ_FLAT){ if(x>=f.x0&&x<=f.x1&&z>=f.z0&&z<=f.z1 && f.fy<=(curY===undefined?1e9:curY)+2.4){ if(best===null||f.fy>best) best=f.fy; } }
-  return best===null?0:best;
-}
+function getFloorH(x,z,curY){ return 0; } // MAP FLATTENED: single ground floor. HZ_FLAT/HZ_RAMP now dormant (kept so callers don't break).
 function blocked(x,z,r,y){
   if(y===undefined) y=(PL&&PL.pos)?PL.pos.y:0;
   if(!inOpenRoom(x,z,y)) return true;
@@ -2017,7 +2012,7 @@ const PERK_ORBS=[]; // global — animated in game loop
 let WEATHER='clear', _fogBase=0x050409, _clouds=[], _smoke=[]; // Part 4 outdoors/weather (declared early — used by buildOutdoorsV34 + loop)
 buildMapNew(); // OLD buildMap() is intentionally NOT called — clean new layout, nothing old left behind
 buildFloorsV3();// v3: adds BASEMENT + UPPER floors, stairs, drop-through, skybox (real verticality)
-buildLayersV32();// Map-V2 Part 2: full basement + upper LAYERS (Cold Storage, Tunnel, Power Room, Balcony, Attic, Rooftop)
+// buildLayersV32(); // REMOVED — map flattened to one ground floor (Map-V2 Parts 2/3 reverted). Function left dormant.
 buildOutdoorsV34();// Map-V2 Part 4: skyline silhouette backdrop + collapsed plank bridge -> bell tower stub
 phase1Assets(); // load real PBR textures + IBL + film-grade pass (now that materials M exist)
 dressMap();     // Phase 2: architectural trim + columns + per-room set-dressing (additive, no nav impact)
@@ -2036,35 +2031,8 @@ function buildFloorsV3(){
   const flr=(cx,cz,w,d,y,mat)=>{const m=new THREE.Mesh(box(w,.3,d),mat||M.floor);m.position.set(cx,y-.15,cz);m.receiveShadow=true;scene.add(m);WORLD_HIT.push(m);};
   const cei=(cx,cz,w,d,y)=>{const m=new THREE.Mesh(box(w,.2,d),M.ceil);m.position.set(cx,y+H,cz);scene.add(m);};
   const wal=(x,z,w,d,fy,mat)=>{mesh(box(w,H,d),mat||M.wall,x,fy+H/2,z);addCol(COLS,x,z,w/2+.02,d/2+.02,fy);};
-  // ---- BASEMENT: Boiler Room (below the Lab) ----
-  ROOMS.boiler={x0:-11,x1:11,z0:-33,z1:-13,fy:BY,open:true,name:'Boiler Room'};
-  HZ_FLAT.push({x0:-11,x1:11,z0:-33,z1:-13,fy:BY});
-  flr(0,-23,22,20,BY,std(0x14100c,.92,.05)); cei(0,-23,22,20,BY);
-  wal(0,-33.3,22,T,BY); wal(11.3,-23,T,20,BY);
-  wal(-11.3,-29,T,8,BY); wal(-11.3,-16,T,6,BY);   // W wall w/ gap z-25..-19 -> Cold Storage
-  wal(-7,-12.7,8,T,BY); wal(7,-12.7,8,T,BY);       // S wall w/ gap x-3..3 -> Maintenance Tunnel
-  ptL(0,BY+3.4,-23,0xff5a1e,2.2,20);
-  mesh(box(4,4,3),std(0x1a1410,.7,.5),0,BY+2,-30); addCol(COLS,0,-30,2.2,1.7,BY);              // furnace landmark
-  { const fg=new THREE.Mesh(box(1.3,1.7,.2),new THREE.MeshBasicMaterial({color:0xff6a00})); fg.position.set(0,BY+1.4,-28.4); scene.add(fg); }
-  { const water=new THREE.Mesh(box(21,.04,19),new THREE.MeshStandardMaterial({color:0x0a2028,transparent:true,opacity:.55,roughness:.05,metalness:.4})); water.position.set(0,BY+.35,-23); scene.add(water); } // knee-deep water
-  // ---- UPPER: Projection Catwalk (above the Lab) ----
-  ROOMS.catwalk={x0:-11,x1:11,z0:-33,z1:-13,fy:UY,open:true,name:'Projection Catwalk'};
-  HZ_FLAT.push({x0:-11,x1:11,z0:-28,z1:-13,fy:UY}); // hole at z:-33..-28 = one-way DROP-THROUGH to the Lab
-  flr(0,-20.5,22,15,UY,std(0x1a1a1e,.7,.3));
-  wal(0,-33.3,22,T,UY); wal(-11.3,-23,T,20,UY); wal(11.3,-23,T,20,UY);
-  ptL(0,UY+3,-22,0x88aaff,1.8,20);
-  mesh(box(1.4,1,2),std(0x14161a,.5,.6),0,UY+.8,-15); mesh(cyl(.12,.2,.5,10),std(0x222,.4,.6),0,UY+1.2,-13.6,Math.PI/2); // projector landmark
-  // railing around the drop hole
-  for(const e of [[-11,-30.5,T,5],[11,-30.5,T,5],[0,-28.2,22,T]]) mesh(box(e[2],.9,e[3]),std(0x33373a,.5,.6),e[0],UY+.45,e[1]);
-  // ---- STAIRS (ramps) : Lab EAST down to Boiler, Lab WEST up to Catwalk ----
-  HZ_RAMP.push({x0:7,x1:11,z0:-31,z1:-13,y0:0,y1:BY,axis:'z'});   // walking NORTH descends to basement
-  HZ_RAMP.push({x0:-11,x1:-7,z0:-31,z1:-13,y0:0,y1:UY,axis:'z'}); // walking NORTH ascends to catwalk
-  // register the stair shafts as open rooms spanning the vertical band (so you can stand on the ramps)
-  ROOMS.stairD={x0:6.5,x1:11.2,z0:-31,z1:-13,fy:BY/2,open:true,name:'Stairwell'};
-  ROOMS.stairU={x0:-11.2,x1:-6.5,z0:-31,z1:-13,fy:UY/2,open:true,name:'Stairwell'};
-  for(let i=0;i<9;i++){ const t=i/9; mesh(box(3.4,.18,2),std(0x2a2620,.8,.1),9,BY*t-.1,-13-i*2); mesh(box(3.4,.18,2),std(0x2a2620,.8,.1),-9,UY*t-.1,-13-i*2); }
-  // side walls for the stairwells (basement + upper level colliders so you can't fall off)
-  wal(11.2,-22,T,18,BY); wal(-11.2,-22,T,18,UY);
+  // MAP SIMPLIFIED TO ONE GROUND FLOOR: the basement (Boiler Room), upper (Projection Catwalk)
+  // and all stairs/ramps that used to be built here are removed. Only the night sky below remains.
   // ---- SKY: night dome + moon (visible looking up through the drop hole / catwalk) ----
   { const sky=new THREE.Mesh(new THREE.SphereGeometry(180,20,14),new THREE.MeshBasicMaterial({color:0x05060f,side:THREE.BackSide,fog:false})); scene.add(sky);
     const moon=new THREE.Mesh(new THREE.SphereGeometry(6,18,14),new THREE.MeshBasicMaterial({color:0xdfe6f0,fog:false})); moon.position.set(90,80,70); scene.add(moon);
@@ -2195,30 +2163,8 @@ function buildOutdoorsV34(){ // Map-V2 Part 4 — skyline backdrop + collapsed s
   for(let i=0;i<4;i++){ const a=i/4*Math.PI*2+0.5, rad=96, sx=Math.cos(a)*rad, sz=Math.sin(a)*rad;
     const col=new THREE.Mesh(new THREE.CylinderGeometry(3,8,50,8,1,true),new THREE.MeshBasicMaterial({color:0x0b0e16,transparent:true,opacity:.4,side:THREE.DoubleSide,depthWrite:false,fog:false})); col.position.set(sx,25,sz); scene.add(col); _smoke.push(col); }
 
-  // ---- COLLAPSED SKY-BRIDGE: Rooftop (east gap z21..25) -> Bell Tower stub ----
-  ROOMS.skybridge={x0:35,x1:47,z0:21,z1:25,fy:UY,open:true,name:'Collapsed Bridge'}; HZ_FLAT.push({x0:35,x1:47,z0:21,z1:25,fy:UY});
-  for(let i=0;i<12;i++){ if(i===4||i===8)continue; mesh(box(.95,.14,3.6),std(0x2a2118,.85,.05),35.5+i,UY-.06,23,0,(i%3-1)*.04,0); } // plank deck (2 missing = gaps)
-  mesh(box(12,.1,3.8),new THREE.MeshBasicMaterial({color:0x05060a,transparent:true,opacity:.35}),41,UY-.4,23);   // dark void under the gaps
-  for(const bz of [21.4,24.6]){ mesh(cyl(.06,.06,12,5),std(0x1a140c,.7,.2),41,UY-.5,bz,0,0,Math.PI/2); }         // support beams
-  for(let i=0;i<5;i++){ if(i===2)continue; mesh(cyl(.05,.05,.85,5),std(0x241c12,.7,.2),36+i*2.4,UY+.4,21.1); }   // broken railing (N side only)
-  mesh(box(11,.08,.08),std(0x241c12,.7,.2),41,UY+.8,21.1); addCol(COLS,41,20.9,6,.18,UY);                         // N rail + collider (S side open)
-
-  // ---- BELL TOWER stub (2nd building) ----
-  ROOMS.belltower={x0:47,x1:57,z0:15,z1:31,fy:UY,open:true,name:'Bell Tower'}; HZ_FLAT.push({x0:47,x1:57,z0:15,z1:31,fy:UY});
-  { const f=new THREE.Mesh(box(10,.3,16),std(0x1e1a14,.8,.05)); f.position.set(52,UY-.15,23); f.receiveShadow=true; scene.add(f); WORLD_HIT.push(f); }
-  const bw=(x,z,w,d)=>{ mesh(box(w,H,d),M.wall,x,UY+H/2,z); addCol(COLS,x,z,w/2+.02,d/2+.02,UY); };
-  bw(57.3,23,T,16); bw(52,14.7,10,T); bw(52,31.3,10,T);                                                          // E,N,S walls
-  mesh(box(T,1.2,6),std(0x2a2620,.7,.08),47.02,UY+.6,17.5); addCol(COLS,47,17.5,.25,3,UY);                       // W parapet z15..20.5
-  mesh(box(T,1.2,6),std(0x2a2620,.7,.08),47.02,UY+.6,28.5); addCol(COLS,47,28.5,.25,3,UY);                       // W parapet z25.5..31 (gap z21..25 = bridge)
-  ptL(52,UY+3,23,0x9aa6c8,1.5,22);
-  { const fr=std(0x241c12,.7,.2); for(const p of [[49,20],[49,26],[55,20],[55,26]]) mesh(box(.3,3.2,.3),fr,p[0],UY+1.6,p[1]); // bell frame
-    mesh(box(6.4,.3,.3),fr,52,UY+3.1,20); mesh(box(6.4,.3,.3),fr,52,UY+3.1,26);
-    const bell=new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.5,2.0,16,1,true),std(0x5a4a24,.4,.9)); bell.position.set(52,UY+1.7,23); scene.add(bell); addCol(COLS,52,23,1.5,1.5,UY);
-    const cap=new THREE.Mesh(new THREE.SphereGeometry(1.15,14,8,0,Math.PI*2,0,Math.PI/2),std(0x5a4a24,.4,.9)); cap.position.set(52,UY+2.7,23); scene.add(cap); }
-  // wall-buy reward sign on the E wall (interactable added to INTERACTABLES)
-  { const c=document.createElement('canvas');c.width=256;c.height=128;const g=c.getContext('2d'); g.fillStyle='#0d0a04';g.fillRect(0,0,256,128); g.strokeStyle='#ff6644';g.lineWidth=4;g.strokeRect(4,4,248,120);
-    g.fillStyle='#fff';g.font='bold 30px Arial';g.textAlign='center';g.fillText('SPAS-12',128,54); g.fillStyle='#ff8866';g.font='bold 22px Arial';g.fillText('BELL TOWER  1750',128,92);
-    const tx=new THREE.CanvasTexture(c);tx.encoding=THREE.sRGBEncoding; const s=new THREE.Mesh(new THREE.PlaneGeometry(2.4,1.2),new THREE.MeshStandardMaterial({map:tx,emissiveMap:tx,emissive:new THREE.Color(0xff6644),emissiveIntensity:.6,side:THREE.DoubleSide})); s.position.set(56.85,UY+1.5,23); s.rotation.y=-Math.PI/2; scene.add(s); ptL(55.5,UY+1.6,23,0xff6644,.7,5); }
+  // COLLAPSED SKY-BRIDGE + BELL TOWER removed — they were upper-floor (fy 4.5). Map is now one ground floor.
+  // (The Bell Tower's SPAS-12 wall-buy was a duplicate of the Courtyard SPAS-12, which remains.)
 }
 // livingAtmosphere() is called near loop() — after ALL its globals (POWER_ON, mystGrp, ...) exist.
 
@@ -2244,8 +2190,8 @@ function livingAtmosphere(){
   // --- emergency red lights (on until power) ---
   for(const s of [[0,0],[0,-22],[0,22],[-24,0],[24,0]]){ const l=new THREE.PointLight(0xff2a12,1.3,17); l.position.set(s[0],3.4,s[1]); scene.add(l); _EMERGENCY.push(l); }
   // --- power switch: main breaker in the BASEMENT Power Room (x0,z28 @ fy-4.5); requires a cellar run ---
-  { const px=0,pz=27.6,py=-4.5, mt=std(0x14161a,.5,.6);
-    // breaker cabinet + flanking fuse boxes on the south wall
+  { const px=-30,pz=-20,py=0, mt=std(0x14161a,.5,.6); // relocated from the basement to the ground-floor Morgue
+    // breaker cabinet + flanking fuse boxes
     const panel=new THREE.Mesh(box(1.2,1.5,.3),mt); panel.position.set(px,py+1.3,pz); panel.castShadow=true; scene.add(panel);
     mesh(box(.5,1.1,.28),std(0x0e1013,.5,.7),px-1.0,py+1.2,pz); mesh(box(.5,1.1,.28),std(0x0e1013,.5,.7),px+1.0,py+1.2,pz);
     _powerLever=new THREE.Mesh(box(.09,.42,.09),std(0x8a2a2a,.4,.6)); _powerLever.position.set(px+.28,py+1.25,pz-.18); _powerLever.rotation.z=.6; scene.add(_powerLever);
@@ -2551,7 +2497,7 @@ function buildMapNew(){
 
   // ===== FOYER (south) x-11..11 z11..33 =====
   flr(0,22,22,22,M.floor); cei(0,22,22,22);
-  wseg('x',33,-11,11,M.wall); wseg('z',-11,11,33,M.wall); wdoor('z',11,11,33,22,M.wall,'chapel',1750,'Chapel'); wseg('z',11,33,37,M.wall);
+  wseg('x',33,-11,11,M.wall); wseg('z',-11,11,33,M.wall); wdoor('z',11,11,33,22,M.wall,'chapel',1750,'Séance Room'); wseg('z',11,33,37,M.wall);
   chandelier(0,22); ptL(0,4,22,0xffc488,2.2,26);
   perkMachine(-9,31,0xdd1111,'Juggernog','jug');
   teleporterPad(8,30,0xffaa66);
@@ -2590,7 +2536,7 @@ function buildMapNew(){
 
   // ===== COURTYARD (east) x11..37 z-11..11 =====
   flr(24,0,26,22,std(0x1a1814,.9,.05)); cei(24,0,26,22,std(0x05060a,.95,0));
-  wseg('z',37,-11,11,M.wall); wdoor('x',11,11,37,24,M.wall,'chapel',1750,'Chapel'); wdoor('x',-11,11,37,24,M.wall,'depot',1500,'Supply Depot');
+  wseg('z',37,-11,11,M.wall); wdoor('x',11,11,37,24,M.wall,'chapel',1750,'Séance Room'); wdoor('x',-11,11,37,24,M.wall,'depot',1500,'Supply Depot');
   ptL(24,4,0,0x8899cc,1.9,28);
   perkMachine(14,-9,0x11dd11,'Stamin-Up','stam');
   perkMachine(34,-8,0xdd11aa,'PhD Flopper','phd');
@@ -2609,15 +2555,22 @@ function buildMapNew(){
 
   // (West Gallery merged into the Grand Theater above — no longer a separate room)
 
-  // ===== CHAPEL (SE) x11..35 z11..37 — enter from Foyer's east wall =====
+  // ===== SÉANCE ROOM (SE) x11..35 z11..37 — occult ritual chamber (former Chapel). WWII-era occult horror, NO religious iconography. =====
   flr(23,24,24,26,std(0x14100c,.6,.1)); cei(23,24,24,26);
   wseg('x',37,11,35,M.wall); wseg('z',35,11,37,M.wall);
-  ptL(23,3.8,24,0xffb060,1.8,26);
-  mesh(box(4,.6,1.6),std(0x2a2118,.6,.1),23,.3,34); mesh(box(2.4,1.0,.9),std(0x3a2e1e,.5,.1),23,.8,34); addCol(COLS,23,34,2.1,.9);
-  { const cm=(M.gilt||std(0xcaa64a,.35,.9)); const v=new THREE.Mesh(box(.16,1.4,.16),cm); v.position.set(23,2.3,34.4); scene.add(v); const hh=new THREE.Mesh(box(.7,.16,.16),cm); hh.position.set(23,2.55,34.4); scene.add(hh); }
-  for(let i=0;i<4;i++){ for(const px of [17,29]){ mesh(box(4,.5,.6),(M.velvet||std(0x5a1420,.6,.2)),px,.4,15+i*3.2); addCol(COLS,px,15+i*3.2,2,.35); } }
-  { const sg=new THREE.Mesh(box(.1,3,5),new THREE.MeshStandardMaterial({color:0x224488,emissive:0x3366cc,emissiveIntensity:.7,roughness:.3})); sg.position.set(34.7,2.2,24); scene.add(sg); ptL(33,2.4,24,0x6699ff,1.1,10); }
-  for(const cx of [19,27]) for(const cz of [20,28]){ mesh(cyl(.05,.06,.4,8),std(0xe8e0cc,.5,0),cx,.9,cz); const fl=new THREE.Mesh(sph(.04,5,4),new THREE.MeshBasicMaterial({color:0xffcf7a})); fl.position.set(cx,1.16,cz); scene.add(fl); }
+  ptL(23,3.8,24,0x66ff88,1.7,26); // sickly green ritual glow
+  // summoning circle on the floor — concentric glowing rings + radiating sigil spokes (flat, no collider)
+  { for(const rr of [[2.3,2.5],[1.15,1.28]]){ const rc=new THREE.Mesh(new THREE.RingGeometry(rr[0],rr[1],40),new THREE.MeshBasicMaterial({color:0x33ff88,transparent:true,opacity:.5,side:THREE.DoubleSide})); rc.rotation.x=-Math.PI/2; rc.position.set(23,.03,24); scene.add(rc); }
+    for(let i=0;i<6;i++){ const a=i/6*Math.PI*2; const ln=new THREE.Mesh(box(2.3,.02,.05),new THREE.MeshBasicMaterial({color:0x33ff88,transparent:true,opacity:.4})); ln.position.set(23+Math.cos(a)*1.75,.03,24+Math.sin(a)*1.75); ln.rotation.y=-a; scene.add(ln); } }
+  // central stone ritual slab (sacrificial table, not an altar) — solid
+  mesh(box(2.2,.7,1.2),std(0x2a2622,.72,.2),23,.35,24); mesh(box(2.4,.14,1.4),std(0x1a1712,.6,.3),23,.75,24); addCol(COLS,23,24,1.3,.8);
+  { const orb=new THREE.Mesh(sph(.17,10,8),new THREE.MeshBasicMaterial({color:0x66ff99,transparent:true,opacity:.9})); orb.position.set(23,.98,24); scene.add(orb); ptL(23,1.3,24,0x66ff88,1.0,7); }
+  // iron braziers with green witch-fire at the front corners (clear of the back spawns)
+  for(const bx of [16,30]){ mesh(cyl(.28,.34,.9,10),std(0x14120e,.6,.5),bx,.45,16); const fl=new THREE.Mesh(sph(.22,8,6),new THREE.MeshBasicMaterial({color:0x66ff99})); fl.position.set(bx,1.0,16); scene.add(fl); ptL(bx,1.25,16,0x55ee88,1.1,9); addCol(COLS,bx,16,.4,.4); }
+  // occult ward sigil on the east wall (glowing geometric wards — replaces the stained glass; abstract, non-religious)
+  { for(const rr of [[1.0,1.15,3],[1.35,1.5,24]]){ const sig=new THREE.Mesh(new THREE.RingGeometry(rr[0],rr[1],rr[2]),new THREE.MeshBasicMaterial({color:0x33ff88,side:THREE.DoubleSide,transparent:true,opacity:.85})); sig.position.set(34.7,2.4,24); sig.rotation.y=Math.PI/2; scene.add(sig); } ptL(33.6,2.4,24,0x33ff88,1.1,10); }
+  // hanging chains from the ceiling (cosmetic)
+  for(const c of [[17,30],[29,30],[17,18],[29,18]]){ mesh(cyl(.03,.03,1.6,5),std(0x2a2620,.6,.5),c[0],3.3,c[1]); }
 
   // ===== SUPPLY DEPOT (NE) x11..37 z-33..-11 — enter from Courtyard's north wall =====
   flr(24,-22,26,22,std(0x161310,.7,.08)); cei(24,-22,26,22);
@@ -3133,7 +3086,7 @@ const INTERACTABLES=[
   {type:'buy',x:10,  z:-24,range:2.4,weaponKey:'galil', cost:1200,label:'Galil'},    // lab east wall
   {type:'buy',x:-24, z:-10,range:2.4,weaponKey:'m16',   cost:1200,label:'M16A1'},    // theater south wall
   {type:'buy',x:36,  z:0,  range:2.4,weaponKey:'spas12',cost:1500,label:'SPAS-12'},  // courtyard east wall
-  {type:'buy',x:55,  z:23, range:2.6,weaponKey:'spas12',cost:1750,label:'SPAS-12',fy:4.5}, // bell tower (across the sky bridge)
+  // (bell-tower SPAS-12 removed — was a duplicate of the Courtyard SPAS-12; bell tower no longer exists)
   // ---- perks (match perkMachine placements) ----
   {type:'perk',x:-9, z:31, range:2.5,perkKey:'juggernog', cost:2500,label:'Juggernog',   desc:'250 max HP'},
   {type:'perk',x:8,  z:-30,range:2.5,perkKey:'speed_cola',cost:2500,label:'Speed Cola',  desc:'2× reload speed'},
@@ -3145,7 +3098,7 @@ const INTERACTABLES=[
   // ---- mystery box (starts in foyer) + pack-a-punch (lab) ----
   {type:'mystery',x:0,z:28,range:2.4,cost:950,label:'Mystery Box'},
   {type:'pap',x:0,z:-30.4,range:2.6,cost:2500,label:'Pack-a-Punch'},
-  {type:'power',x:0,z:26,range:2.6,cost:1500,label:'Power Switch',fy:-4.5}, // basement Power Room (requires a cellar run)
+  {type:'power',x:-30,z:-20,range:2.6,cost:1500,label:'Power Switch'}, // relocated to the ground-floor Morgue (was basement)
   {type:'gramophone',x:-35,z:-8,range:2.2,gid:0,label:'Gramophone'},
   {type:'gramophone',x:10, z:32,range:2.2,gid:1,label:'Gramophone'},
   {type:'gramophone',x:36, z:8, range:2.2,gid:2,label:'Gramophone'},
@@ -4479,18 +4432,7 @@ const SPAWN_PTS=[
   {x:16,z:-28},{x:32,z:-28},{x:24,z:-30},
   // Undercroft Passage (curved back-corridor)
   {x:-18,z:-36},{x:18,z:-36},{x:0,z:-37},
-  // Basement — Boiler Room (fy:-4.5, reached via Lab east stair)
-  {x:0,z:-30,fy:-4.5},{x:-8,z:-24,fy:-4.5},{x:8,z:-24,fy:-4.5},
-  // Basement — Cold Storage
-  {x:-28,z:-24,fy:-4.5},{x:-16,z:-28,fy:-4.5},
-  // Basement — Power Room
-  {x:-6,z:24,fy:-4.5},{x:6,z:24,fy:-4.5},
-  // Upper — Projection Catwalk (fy:4.5, reached via Lab west stair)
-  {x:0,z:-24,fy:4.5},{x:-8,z:-18,fy:4.5},{x:8,z:-18,fy:4.5},
-  // Upper — Balcony / Attic / Rooftop
-  {x:-40,z:-8,fy:4.5},{x:-20,z:-8,fy:4.5},
-  {x:0,z:22,fy:4.5},{x:8,z:26,fy:4.5},
-  {x:20,z:22,fy:4.5},{x:30,z:26,fy:4.5},
+  // (Basement + upper spawn points removed — map flattened to one ground floor.)
 ];
 
 // --- spawn eligibility: only rooms the player can actually reach (SPAWN-ONLY fix) ---
@@ -4572,9 +4514,18 @@ function startRound(r){
 function spawnZ(r,isBoss=false){
   const pts=activeSpawns();
   if(!pts.length)return;
-  const sp=pts[Math.floor(Math.random()*pts.length)];
-  const z=new Zombie(sp.x+(Math.random()-.5)*1.5,sp.z+(Math.random()-.5)*1.5,r,isBoss);
-  z.pos.y=sp.fy||0; // spawn on the correct floor
+  // CHANGE 3: never spawn a zombie inside a wall/collider. Try a few jittered picks, then the
+  // un-jittered point, then any eligible point whose centre is open. Bounded — no per-frame scanning.
+  let sx,sz,fy,ok=false;
+  for(let tries=0;tries<6 && !ok;tries++){
+    const sp=pts[Math.floor(Math.random()*pts.length)]; fy=sp.fy||0;
+    const jx=sp.x+(Math.random()-.5)*1.5, jz=sp.z+(Math.random()-.5)*1.5;
+    if(!blocked(jx,jz,0.4,fy)){ sx=jx;sz=jz;ok=true; }
+    else if(!blocked(sp.x,sp.z,0.4,fy)){ sx=sp.x;sz=sp.z;ok=true; } // un-jittered centre
+  }
+  if(!ok){ const clean=pts.find(p=>!blocked(p.x,p.z,0.4,p.fy||0)); if(!clean) return; sx=clean.x;sz=clean.z;fy=clean.fy||0; }
+  const z=new Zombie(sx,sz,r,isBoss);
+  z.pos.y=fy; // spawn on the correct floor (flat map: always 0)
   ZOMBIES.push(z);
   if(isBoss) currentBoss=z;
   spawned++;updateHUD();

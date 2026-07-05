@@ -2,18 +2,19 @@
 
 _Living snapshot for prompting. Updated at the end of every Map-V2 part._
 
-**Version:** v3.5.0 (Map-V2 Part 4 complete) · **Repo:** khatibapp/zombie-survival · branch `main`
+**Version:** v3.6.0 (map flattened to a single ground floor) · **Repo:** khatibapp/zombie-survival · branch `main`
 **Ship flow:** bump `package.json` → commit → `git tag vX.Y.Z` → push tag → GitHub Actions builds `ZombieSurvival-Setup-<ver>.exe` + `latest.yml` → in-app updater.
 
 ## What the game is
 Round-based zombie survival FPS. Single file `index.html` (~4,800 lines, inline Three.js r128).
 Electron desktop app, auto-updates from GitHub Releases. Fully offline. WWII-era occult-horror art direction, original assets only (CC0 in `/assets`, MIT post-proc in `/vendor/pp`).
 
-## Map-V2 progress (corrective redesign)
+## Map progress
 - [x] **Part 1 — Footprint reshape** (v3.2.0). Hub-and-spoke → looped network.
-- [x] **Part 2 — Real vertical layers** (v3.3.0). 3 layers, 27 zones, 7 stairs/ramps/ladder.
-- [x] **Part 3 — Multi-floor pathfinding** (v3.4.0). Layered A* + vertical portals; fallback deleted.
-- [x] **Part 4 — Outdoors** (v3.5.0). Skyline silhouette + per-run weather + collapsed bridge → bell tower.
+- [x] **Part 4 — Outdoors** (v3.5.0). Skyline silhouette + per-run weather. *(Bell tower + sky-bridge removed in v3.6.0; skyline kept.)*
+- [x] **SIMPLIFY — single ground floor** (v3.6.0). **Reverted Parts 2/3**: all basement/upper layers, stairs, ramps and the drop-through are gone; `getFloorH()` returns a constant 0. Chapel replaced by the **Séance Room** (occult, no religious iconography). Spawn points re-validated against `blocked()` + a spawn-time nudge guard so nothing spawns in walls. A* now covers the whole (flat) map.
+- ~~Part 2 — Real vertical layers~~ **DROPPED** (v3.6.0). Multi-floor geometry removed.
+- ~~Part 3 — Multi-floor pathfinding~~ **OBSOLETE** (v3.6.0). Layered-nav code left dormant (harmless empty upper/basement layers); ground A* covers the map.
 - [ ] Part 5 — Logical placement audit + door-swing fix
 - [ ] Part 6 — Life pass (clutter, motion, sound, light balance)
 
@@ -22,25 +23,21 @@ Coordinate convention: **−z = NORTH, +z = SOUTH, −x = WEST, +x = EAST.**
 
 Ground floor (all `fy:0`), spawn = Atrium (off-centre, east of footprint centroid):
 - **Atrium** (−11..11, −11..11) — spawn; chandelier; doors to Lab/Foyer/Theater/Courtyard
-- **Grand Theater** (−57..−11, −11..11) — **2-story volume** (ceiling 8.6), former West Gallery merged in as its ruined moonlit far-west end; stage, curtains, seats, **fallen chandelier**, Double Tap + Mule Kick, M16 wall-buy
-- **Lab** (−11..11, −33..−11) — Pack-a-Punch, teleporter, Speed Cola, Deadshot, Galil wall-buy; basement/upper stairs
+- **Grand Theater** (−57..−11, −11..11) — tall auditorium; former West Gallery merged in as its ruined moonlit far-west end; stage, curtains, seats, **fallen chandelier**, Double Tap + Mule Kick, M16 wall-buy *(balcony/upper removed — now a single-level hall)*
+- **Lab** (−11..11, −33..−11) — Pack-a-Punch, teleporter, Speed Cola, Deadshot, Galil wall-buy *(basement/upper stairs removed)*
 - **Foyer** (−11..11, 11..33) — Juggernog, teleporter, MP5 wall-buy
-- **Courtyard** (11..37, −11..11) — **interior court** wrapped on 3 sides (Depot N, Chapel S, Atrium W); Stamin-Up, PhD, SPAS wall-buy
+- **Courtyard** (11..37, −11..11) — **interior court** wrapped on 3 sides (Depot N, Séance Room S, Atrium W); Stamin-Up, PhD, SPAS wall-buy
 - **Morgue** (−37..−11, −33..−11) — drawer wall, gurneys
 - **Supply Depot** (11..37, −33..−11) — crates, ammo racks, wrecked truck
-- **Chapel** (11..35, 11..37) — altar, stained glass, pews
+- **Séance Room** (11..35, 11..37) — *(former Chapel)* occult ritual chamber: summoning circle, stone sacrificial slab, green witch-fire braziers, ward sigils. No cross/religious iconography. **Power Switch relocated to the Morgue.**
 - **Undercroft Passage** (−37..37, −40..−33) — **curved crawl-height** (2.8) back-corridor behind the Lab; faceted parabolic arc; connects Morgue↔Depot
 
-**BASEMENT layer** (`fy −4.5`) — 4 connected zones: **Cold Storage** (under Morgue; freezer racks) — **Boiler Room** (furnace, flooded) — **Maintenance Tunnel** (spine) — **Power Room** (under Foyer; the **power switch now lives here** — turning on power requires a cellar run in emergency-red).
-
-**UPPER layer** (`fy +4.5`) — **Projection Catwalk** (over Lab, drop-through hole) — **Mezzanine Bridge** (over Atrium) — **Balcony** ring (overlooks the 2-story Theater void, railed) — **Attic** (over Foyer; roof-hole moonlight shaft) — **Rooftop** (over Chapel, open sky; Part 4 adds a bridge off it).
-
-**Vertical connections:** 5 stairs in different wings (Lab→Boiler↓, Lab→Catwalk↑, Foyer→Power↓, Morgue→ColdStorage↓, Theater→Balcony↑ grand) + a **debris ramp** (ruined-W→Balcony) + an **elevator-shaft ladder** (Chapel→Rooftop) + the one-way **drop-through** (Catwalk→Lab). No floor is reachable from only one point. Interactables + doors are now **floor-aware** (won't trigger through a ceiling/floor).
+**Single ground floor** (`fy 0`) — the map is now one level. All basement/upper zones, stairs, ramps and the drop-through are removed. The night **sky dome + moon** and the **skyline silhouette** backdrop are kept (cosmetic). The **power switch** moved from the old basement Power Room to the **Morgue** (ground). The same-level check on wall-buys/PaP (`getFloorH`) is kept as a now-no-op safeguard.
 
 **Circulation loops** (verified 9 independent cycles in the door graph; spec asked ≥3):
 - L1 north: Atrium→Lab→Depot→Courtyard→Atrium
 - L2 nw: Atrium→Lab→Morgue→Theater→Atrium
-- L3 south: Atrium→Foyer→Chapel→Courtyard→Atrium
+- L3 south: Atrium→Foyer→Séance Room→Courtyard→Atrium
 - L4 back: Morgue→Undercroft→Depot (curved crawl)
 
 ## Systems in the build
@@ -49,22 +46,19 @@ Weapons (pistol + Galil/MP5/M16A1/SPAS-12, Pack-a-Punch), 7 perks (Jugg, Speed C
 ## Engine constraints (important for prompting)
 - **Collision is axis-aligned box (AABB) + rectangular room tests.** Non-90°/curved geometry is done by **faceted** angled wall meshes with stepped AABB colliders behind them (e.g. the Undercroft arc). True oriented colliders would need an engine rewrite.
 - Rooms are rectangles (`ROOMS[key]={x0,x1,z0,z1,fy,open}`); non-rectangular zones are composed from multiple rectangles.
-- Verticality via `HZ_FLAT`/`HZ_RAMP` + `getFloorH`; floor separation ≈4.5, band tol ≈2.9.
-- Nav grid auto-bakes bounds from `ROOMS`, ground-floor only so far.
+- **Single ground floor** — `getFloorH()` returns a constant 0. `HZ_FLAT`/`HZ_RAMP` are kept but empty/dormant (so callers don't break). Floor-band tolerances remain in the collision/interact code as harmless no-ops on a flat map.
+- Nav grid auto-bakes bounds from `ROOMS` — now the **whole** (flat) map.
 
-## Pathfinding (Part 3)
-Layered A* over one walkability grid per floor (ground/basement/upper), joined by **vertical portal edges**: every ramp/stair/ladder is forced walkable on both its layers and linked cell-by-cell (2-way); the Catwalk hole is a 1-way down drop-through. A* uses a proper closed-set (each node expanded once). LOS beeline only fires when the zombie is on the **player's floor**. The cross-floor direct-steer fallback is **deleted** — a pathless zombie holds and retries. Door purchases reconnect the graph live (nav cells store their door index; `navPassable` reads `door.open`). Nav-debug overlay (backtick → N) draws all three floors color-coded (green/orange/blue) + yellow portal links + live zombie paths at their floor height. Verified: Boiler→Rooftop (102-wp) and behind-stage→Atrium (88-wp) both route correctly.
+## Pathfinding
+A* over the ground walkability grid — now covers the entire map (all rooms are `fy 0`). The layered-nav machinery (per-floor grids, `navFindPath3`, vertical portal edges, `NAV_FYS=[0,-4.5,4.5]`) is **left dormant**: the upper/basement layers bake empty since no rooms live there, so paths resolve on the ground layer. Door purchases reconnect the graph live (`navPassable` reads `door.open`). Verified: every room reachable from the Atrium; no spawn point resolves to a blocked cell.
 
-## Outdoors (Part 4)
-Skyline: a fog-exempt silhouette ring on the horizon (28 ruined buildings, a church spire echoing the Chapel, burned trees, 4 drifting smoke columns) — visible over the Rooftop parapets, so looking out shows a world, not void. Weather: rolled once per run — **RAIN** (courtyard rain streaks + reflective puddle decals on outdoor floors + more-frequent thunder/lightning) or **CLEAR** (drifting cloud layer, brighter moon halo + soft moonlight, colder fog, no lightning); `_fogBase` carries the weather fog colour through round changes. Collapsed **sky-bridge** off the Rooftop's east parapet gap (missing planks, one broken railing, open on the south side) to a **Bell Tower** stub (bell landmark + SPAS-12 wall-buy) — same upper nav layer, so zombies chase you across it. Map footprint now reaches x≈57 east.
+## Outdoors
+Skyline: a fog-exempt silhouette ring on the horizon (ruined buildings, burned trees, drifting smoke columns) — cosmetic backdrop. Weather: rolled once per run — **RAIN** or **CLEAR**; `_fogBase` carries the weather fog colour through round changes. *(The upper-floor sky-bridge + Bell Tower were removed with the vertical layers in v3.6.0; the skyline + night sky remain.)*
 
 ## Known gaps / next
-- A* expansion is uncapped-to-graph-size for completeness; worst-case cross-2-floor repaths flood — watch framerate with many zombies far above/below you (perf playtest item).
 - Placement not yet spatially audited; door-swing parking bug (Part 5).
 - Rooms still sparse between landmarks; no per-room ambient audio/motion (Part 6).
-- **Cosmetic:** stairwells descending into the basement don't yet cut a hole in the
-  ground floor above them (the floor mesh occludes the top of the descent) — matches
-  the original Lab stair behavior; a floor-hole pass is queued for polish.
+- Dormant layered-nav code (`buildLayersV32`, `navFindPath3`, `NAV_FYS`) could be pruned later; left in place as the safe option since removal touches the nav core.
 
 ## Verification method
 Code-only on my side: syntax check (`new Function` on the inline script) + a live Electron **load probe** (temporary `main.js` hooks capturing console/errors + `executeJavaScript` structural asserts — room set, spawns-in-bounds, door graph loops/reachability, nav bake), always removed before shipping. **User playtests gameplay** and reports bugs by room name.
