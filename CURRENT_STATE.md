@@ -2,7 +2,7 @@
 
 _Living snapshot for prompting. Updated at the end of every Map-V2 part._
 
-**Version:** v3.6.0 (map flattened to a single ground floor) · **Repo:** khatibapp/zombie-survival · branch `main`
+**Version:** v3.8.0 (6-room redesign + 3-switch power) · **Repo:** khatibapp/zombie-survival · branch `main`
 **Ship flow:** bump `package.json` → commit → `git tag vX.Y.Z` → push tag → GitHub Actions builds `ZombieSurvival-Setup-<ver>.exe` + `latest.yml` → in-app updater.
 
 ## What the game is
@@ -15,30 +15,22 @@ Electron desktop app, auto-updates from GitHub Releases. Fully offline. WWII-era
 - [x] **SIMPLIFY — single ground floor** (v3.6.0). **Reverted Parts 2/3**: all basement/upper layers, stairs, ramps and the drop-through are gone; `getFloorH()` returns a constant 0. Chapel replaced by the **Séance Room** (occult, no religious iconography). Spawn points re-validated against `blocked()` + a spawn-time nudge guard so nothing spawns in walls. A* now covers the whole (flat) map.
 - ~~Part 2 — Real vertical layers~~ **DROPPED** (v3.6.0). Multi-floor geometry removed.
 - ~~Part 3 — Multi-floor pathfinding~~ **OBSOLETE** (v3.6.0). Layered-nav code left dormant (harmless empty upper/basement layers); ground A* covers the map.
-- [ ] Part 5 — Logical placement audit + door-swing fix
-- [ ] Part 6 — Life pass (clutter, motion, sound, light balance)
+- [x] **REDESIGN — fewer/denser rooms** (v3.8.0). **9→6 merges:** Lab absorbs Supply Depot, Grand Theater absorbs the Morgue, Courtyard absorbs the Séance Room (morgue/chapel/depot ROOMS keys removed; doors rerouted). Still a fully-connected loop, no orphans.
+- [x] **3-SWITCH POWER** (v3.7.0). Power needs finding + throwing **3 switches** (Undercroft, far-west, far-east); free to flip; power on only at 3/3, then teleporters + PaP unlock. `powerThrown` counter, prompt shows "N of 3".
+- [ ] Part 6 — Life pass (clutter, motion, sound, light balance) + per-room theming polish
 
-## Current map (after Part 1)
-Coordinate convention: **−z = NORTH, +z = SOUTH, −x = WEST, +x = EAST.**
+## Current map (6 rooms, single ground floor `fy:0`)
+Coordinate convention: **−z = NORTH, +z = SOUTH, −x = WEST, +x = EAST.** Spawn = Atrium.
+- **Atrium** (−11..11, −11..11) — spawn hub; chandelier; 4 doors to Lab/Foyer/West Wing/East Wing.
+- **North Lab / Workshop** (−11..37, −33..−11) — *Lab + old Supply Depot merged.* Pack-a-Punch, teleporter, Speed Cola + Deadshot perks, Galil wall-buy; crates/racks/truck (old depot); **Power Switch #2** at (−30 is West; depot end has one). Undercroft door on its north wall.
+- **Foyer** (−11..11, 11..33) — Juggernog, teleporter, MP5 wall-buy.
+- **West Wing / Grand Theater** (−57..−11, −33..11) — *Theater + old Morgue merged.* Tall auditorium (stage, curtains, fallen chandelier, seats), Double Tap + Mule Kick, M16 wall-buy; morgue drawers/gurneys at the north end; **Power Switch (far-west)** at (−30,−20). Undercroft door on the morgue-end north wall.
+- **East Wing / Courtyard** (11..37, −11..37) — *Courtyard + old Séance Room merged.* Stamin-Up + PhD, SPAS wall-buy; occult summoning circle / slab / green braziers / ward sigils at the south end; **Power Switch (far-east)** at (30,30).
+- **Undercroft Passage** (−37..37, −40..−33) — curved crawl-height back-corridor; connects West Wing ↔ North Lab; **Power Switch (Undercroft)** at (0,−36).
 
-Ground floor (all `fy:0`), spawn = Atrium (off-centre, east of footprint centroid):
-- **Atrium** (−11..11, −11..11) — spawn; chandelier; doors to Lab/Foyer/Theater/Courtyard
-- **Grand Theater** (−57..−11, −11..11) — tall auditorium; former West Gallery merged in as its ruined moonlit far-west end; stage, curtains, seats, **fallen chandelier**, Double Tap + Mule Kick, M16 wall-buy *(balcony/upper removed — now a single-level hall)*
-- **Lab** (−11..11, −33..−11) — Pack-a-Punch, teleporter, Speed Cola, Deadshot, Galil wall-buy *(basement/upper stairs removed)*
-- **Foyer** (−11..11, 11..33) — Juggernog, teleporter, MP5 wall-buy
-- **Courtyard** (11..37, −11..11) — **interior court** wrapped on 3 sides (Depot N, Séance Room S, Atrium W); Stamin-Up, PhD, SPAS wall-buy
-- **Morgue** (−37..−11, −33..−11) — drawer wall, gurneys
-- **Supply Depot** (11..37, −33..−11) — crates, ammo racks, wrecked truck
-- **Séance Room** (11..35, 11..37) — *(former Chapel)* occult ritual chamber: summoning circle, stone sacrificial slab, green witch-fire braziers, ward sigils. No cross/religious iconography. **Power Switch relocated to the Morgue.**
-- **Undercroft Passage** (−37..37, −40..−33) — **curved crawl-height** (2.8) back-corridor behind the Lab; faceted parabolic arc; connects Morgue↔Depot
+**Power:** 3 switches (Undercroft, far-west West Wing, far-east East Wing) — throw all 3 to restore power; then teleporters + PaP unlock.
 
-**Single ground floor** (`fy 0`) — the map is now one level. All basement/upper zones, stairs, ramps and the drop-through are removed. The night **sky dome + moon** and the **skyline silhouette** backdrop are kept (cosmetic). The **power switch** moved from the old basement Power Room to the **Morgue** (ground). The same-level check on wall-buys/PaP (`getFloorH`) is kept as a now-no-op safeguard.
-
-**Circulation loops** (verified 9 independent cycles in the door graph; spec asked ≥3):
-- L1 north: Atrium→Lab→Depot→Courtyard→Atrium
-- L2 nw: Atrium→Lab→Morgue→Theater→Atrium
-- L3 south: Atrium→Foyer→Séance Room→Courtyard→Atrium
-- L4 back: Morgue→Undercroft→Depot (curved crawl)
+**Circulation:** Atrium is the 4-way hub; Undercroft is the back-loop (West Wing ↔ North Lab). Fully connected, no orphans (verified: all 6 rooms reachable, nav bakes over the whole map).
 
 ## Systems in the build
 Weapons (pistol + Galil/MP5/M16A1/SPAS-12, Pack-a-Punch), 7 perks (Jugg, Speed Cola, Deadshot, Double Tap, Mule Kick, Stamin-Up, PhD), mystery box (relocates over 8 spots), 2 teleporters (Lab↔Foyer), grenades, monkey bombs, power switch (map starts emergency-red), boss rounds, powerups (Max Ammo/Double Points/Nuke/Insta-Kill/Fire Sale), atmosphere (rain, lightning, dust, flicker, night skybox+moon, gramophones). Dev menu on backtick.
