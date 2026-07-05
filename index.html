@@ -2478,6 +2478,12 @@ function buildMapNew(){
   wdoor('x', 11,-11,11, 0, M.wall,'foyer',750,'Grand Foyer');
   chandelier(0,0); ptL(0,4,0,0xffb066,2.6,26);
   pillar(-8,-8);pillar(8,-8);pillar(-8,8);pillar(8,8);
+  // CHANGE3: Ammo Crate against the Atrium north wall, seated on the floor via getFloorH (no float). Refills current weapon reserve.
+  { const ax=6, az=-10.3, ay=getFloorH(ax,az,0);
+    mesh(box(1.3,1.0,1.0),M.crate,ax,ay+0.5,az); addCol(COLS,ax,az,.7,.55);
+    mesh(box(.55,.32,.55),std(0x37421f,.7,.3),ax-.28,ay+1.16,az); mesh(box(.55,.32,.55),std(0x2f3a1a,.7,.3),ax+.28,ay+1.16,az); // ammo cans on top
+    const l=new THREE.Mesh(sph(.05,6,5),new THREE.MeshBasicMaterial({color:0x44ffdd})); l.position.set(ax,ay+1.4,az-.28); scene.add(l);
+    buySign(ax,ay+1.7,az,'z+','Ammo Crate',2500,'#44ffdd'); }
   { const emb=new THREE.Mesh(new THREE.CircleGeometry(2.2,32),new THREE.MeshStandardMaterial({color:0x3a2a10,emissive:0x1a1000,emissiveIntensity:.3,roughness:.4,metalness:.6}));emb.rotation.x=-Math.PI/2;emb.position.set(0,.021,0);scene.add(emb); }
 
   // ===== LAB (north) x-11..11 z-33..-11 =====
@@ -3089,6 +3095,7 @@ const INTERACTABLES=[
   {type:'buy',x:10,  z:-24,range:2.4,weaponKey:'galil', cost:1200,label:'Galil'},    // lab east wall
   {type:'buy',x:-30, z:-10,range:2.4,weaponKey:'m16',   cost:1200,label:'M16A1'},    // BUG4: aligned to its sign at (-30,-10.7); was (-24,-10) on the Morgue door
   {type:'buy',x:36,  z:0,  range:2.4,weaponKey:'spas12',cost:1500,label:'SPAS-12'},  // courtyard east wall
+  {type:'buy',x:6,   z:-10,range:2.6,weaponKey:'ammo',  cost:2500,label:'Ammo Crate'}, // CHANGE3: Atrium N wall, refills current weapon's reserve (2500 / 5000 wonder-or-PaP)
   // (bell-tower SPAS-12 removed — was a duplicate of the Courtyard SPAS-12; bell tower no longer exists)
   // ---- perks (match perkMachine placements) ----
   {type:'perk',x:-9, z:31, range:2.5,perkKey:'juggernog', cost:2500,label:'Juggernog',   desc:'250 max HP'},
@@ -3429,39 +3436,42 @@ function doShoot(){
     // Bullet tracer — pooled (no per-pellet allocation or setTimeout)
     if(SETTINGS.tracers) spawnTracer(CAM.position, CAM.position.clone().addScaledVector(dir,60), w.pap);
 
-    let hitZombie=false;
-    for(const z of ZOMBIES){
-      if(z.dead)continue;
-      // height-correct (add the zombie's floor level z.pos.y) + boss-scaled hit volume (BUG A + BUG B)
-      const zy=z.pos.y||0, hsc=z.hitScale||1;
+    // CHANGE2: bullet PENETRATION. Still ONE ray against the small WORLD_HIT set — find the wall first so the
+    // bullet can't pierce solid geometry, then damage every zombie IN FRONT of that wall (distance order),
+    // up to MAX_PIERCE, with damage falloff per pierce. No early-return on the first zombie.
+    let wallHit=null, wallDist=1e9;
+    if(WORLD_HIT.length){ RAY.set(CAM.position,dir);RAY.near=.1;RAY.far=80;
+      const wh=RAY.intersectObjects(WORLD_HIT,false);
+      if(wh.length && wh[0].point.y>0.05 && wh[0].face){ wallHit=wh[0]; wallDist=wh[0].distance; } }
+    const zhits=[];
+    for(const z of ZOMBIES){ if(z.dead)continue;
+      const zy=z.pos.y||0, hsc=z.hitScale||1;                        // height-correct + boss-scaled hit volume
       const tH=raySphere(CAM.position,dir,new THREE.Vector3(z.pos.x,zy+1.55*hsc,z.pos.z),.22*hsc);
       const tB=raySphere(CAM.position,dir,new THREE.Vector3(z.pos.x,zy+.85*hsc,z.pos.z),.42*hsc);
-      let hit=false,hs=false;
-      if(tH>=0&&(tB<0||tH<=tB)){hit=true;hs=true;}
-      else if(tB>=0)hit=true;
-      if(hit){
-        const instaMul=instaKillTimer>performance.now()?99:1;
-        const dmg=(hs?w.dmg*2.5:w.dmg)*instaMul;
-        const dblMul=dblPtsTimer>performance.now()?2:1;
-        const killed=z.hurt(dmg,hs);
-        if(killed){PL.points+=(z.isBoss?800:100)*dblMul;PL.kills++;PL.roundKills++;}
-        else{PL.points+=10*dblMul;SFX('zhit');}
-        if(hs)SFX('headshot');
-        flashHM(hs);updateHUD();hitZombie=true;break;
-      }
+      let t=-1,hs=false;
+      if(tH>=0&&(tB<0||tH<=tB)){t=tH;hs=true;} else if(tB>=0){t=tB;}
+      if(t>=0 && t<=wallDist) zhits.push({z,t,hs});                  // only zombies in front of the wall
     }
-    // Bullet hole on wall if no zombie hit — raycast only the small WORLD_HIT set
-    // (was intersecting the ENTIRE scene graph per pellet: a major freeze source)
-    if(!hitZombie && WORLD_HIT.length){
-      RAY.set(CAM.position,dir);RAY.near=.1;RAY.far=80;
-      const hits=RAY.intersectObjects(WORLD_HIT,false);
-      if(hits.length>0 && hits[0].point.y>0.05 && hits[0].face){
-        const h=hits[0];
-        const wn=h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
-        spawnBulletHole(h.point,wn);
-        const metallic=!!(h.object.material && h.object.material.metalness>0.5); // sparks on metal, dust otherwise
-        spawnImpact(h.point,metallic);
-      }
+    zhits.sort((a,b)=>a.t-b.t);
+    const MAX_PIERCE=3, PIERCE_FALLOFF=0.8;                          // pierce up to 3 zombies; 100% / 80% / 64% damage
+    const instaMul=instaKillTimer>performance.now()?99:1, dblMul=dblPtsTimer>performance.now()?2:1;
+    let hitZombie=false;
+    for(let p=0;p<zhits.length && p<MAX_PIERCE;p++){ const h=zhits[p];
+      const dmg=(h.hs?w.dmg*2.5:w.dmg)*instaMul*Math.pow(PIERCE_FALLOFF,p);
+      const killed=h.z.hurt(dmg,h.hs);
+      if(killed){PL.points+=(h.z.isBoss?800:100)*dblMul;PL.kills++;PL.roundKills++;}
+      else{PL.points+=10*dblMul;SFX('zhit');}
+      if(h.hs)SFX('headshot');
+      flashHM(h.hs); hitZombie=true;
+    }
+    if(hitZombie)updateHUD();
+    // Bullet hole on the wall — only if the bullet actually reached it (pierced all zombies in its path, or hit none).
+    if(wallHit && zhits.length<=MAX_PIERCE){
+      const h=wallHit;
+      const wn=h.face.normal.clone().transformDirection(h.object.matrixWorld).normalize();
+      spawnBulletHole(h.point,wn);
+      const metallic=!!(h.object.material && h.object.material.metalness>0.5); // sparks on metal, dust otherwise
+      spawnImpact(h.point,metallic);
     }
   }
 }
@@ -3875,12 +3885,12 @@ function handleTeleport(it){
 function handleBuy(it){
   if(it.weaponKey==='ammo'||it.weaponKey==='ammo_w'){
     const w=PL.w;
-    const ammoCost=w.pap?2500:1500;
+    const ammoCost=(w.wonder||w.pap)?5000:2500; // CHANGE3: 2500 normal, 5000 if wonder OR Pack-a-Punched (read at purchase time)
+    if(w.reserve>=w.res){flashMsg('Ammo already full!');return;}   // don't charge if already full
     if(PL.points<ammoCost){flashMsg('Not enough points!');return;}
-    if(w.reserve>=w.res){flashMsg('Already full!');return;}
     PL.points-=ammoCost;
     w.reserve=w.res;
-    SFX('buy');flashMsg(`${w.name} restocked!`);updateHUD();return;
+    SFX('buy');flashMsg(`${w.name} restocked! (-${ammoCost})`);updateHUD();return;
   }
   const existing=PL.weapons.find(w=>w.key===it.weaponKey);
   if(existing){
@@ -4563,15 +4573,8 @@ function checkRoundEnd(){
       flashMsg(`🐒 +1 Monkey Bomb! (${PL.monkeyBombs}/${PL.monkeyBombMax})`);
     }
     updateHUD();
-    announce(`ROUND ${round}\nCOMPLETE!`);
     SFX('round_end');
-    setTimeout(()=>{
-      const el=document.getElementById('bween');
-      el.style.display='block';
-      el.innerHTML=`Round ${round} cleared! +${bonus} pts<br>Next round in <span id="rt">10</span>s`;
-      let t=10;
-      const tid=setInterval(()=>{t--;const e=document.getElementById('rt');if(e)e.textContent=t;if(t<=0){clearInterval(tid);startRound(round+1);}},1000);
-    },3800);
+    startRound(round+1); // CHANGE1: no intermission — the next round begins immediately (startRound flashes the new round number)
   }
 }
 
@@ -4655,7 +4658,7 @@ function updatePrompt(){
     if(near.type==='door') txt=`<span class='pk'>[E]</span> Open ${near.label} — ${near.cost} pts`;
     else if(near.type==='buy'){
       const ex=PL.weapons.find(w=>w.key===near.weaponKey);
-      if(near.weaponKey==='ammo'||near.weaponKey==='ammo_w'){const ac2=PL.w.pap?2500:1500;txt=`<span class='pk'>[E]</span> ${near.label} — ${ac2} pts (${PL.w.pap?'PaP':'std'})`;}
+      if(near.weaponKey==='ammo'||near.weaponKey==='ammo_w'){const ac2=(PL.w.wonder||PL.w.pap)?5000:2500;txt=`<span class='pk'>[E]</span> ${near.label} — refill ${PL.w.name} — ${ac2} pts`;}
       else if(ex) txt=`<span class='pk'>[E]</span> Restock ${ex.name} — ${Math.floor(near.cost/4)} pts`;
       else txt=`<span class='pk'>[E]</span> Buy ${near.label} — ${near.cost} pts`;
     } else if(near.type==='perk'){
