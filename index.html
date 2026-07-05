@@ -2170,6 +2170,7 @@ function buildOutdoorsV34(){ // Map-V2 Part 4 — skyline backdrop + collapsed s
 
 // ===================== PHASE 3+4: LIVING ATMOSPHERE + SPECTACLE =====================
 let POWER_ON=false;
+let powerThrown=0; // how many of the 3 power switches have been thrown (power turns on at 3/3)
 const _EMERGENCY=[];
 const _FLICKER=[];
 let _rain=null, _rainP=[], _lightLight=null, _lightT=10, _flash=0;
@@ -2182,20 +2183,21 @@ function setPower(on){
   POWER_ON=on;
   for(const e of ALL_PTL) e.l.intensity = on? e.base : e.base*0.3;
   for(const l of _EMERGENCY) l.intensity = on? 0 : 1.3;
-  if(_powerLED) _powerLED.material.color.setHex(on?0x33ff44:0xff2200);
-  if(_powerLever) _powerLever.rotation.z = on? -0.6 : 0.6;
+  for(const it of INTERACTABLES){ if(it.type!=='power')continue;
+    if(it._led) it._led.material.color.setHex(on?0x33ff44:(it.thrown?0xffcc00:0xff2200)); // green on / amber armed / red off
+    if(it._lever) it._lever.rotation.z = (on||it.thrown)? -0.6 : 0.6; }
   if(on){ SFX('pap'); flashMsg('⚡ POWER RESTORED'); try{renderer.shadowMap.needsUpdate=true;}catch(e){} }
 }
 function livingAtmosphere(){
   // --- emergency red lights (on until power) ---
   for(const s of [[0,0],[0,-22],[0,22],[-24,0],[24,0]]){ const l=new THREE.PointLight(0xff2a12,1.3,17); l.position.set(s[0],3.4,s[1]); scene.add(l); _EMERGENCY.push(l); }
-  // --- power switch: main breaker in the BASEMENT Power Room (x0,z28 @ fy-4.5); requires a cellar run ---
-  { const px=-30,pz=-20,py=-0.55, mt=std(0x14161a,.5,.6); // ground-floor Morgue; py seats the cabinet base on the floor (was floating)
-    // breaker cabinet + flanking fuse boxes
+  // --- 3 power breakers, one at each power switch's spot (floor-seated cabinet + lever + status LED) ---
+  for(const it of INTERACTABLES){ if(it.type!=='power')continue;
+    const px=it.x,pz=it.z,py=-0.55, mt=std(0x14161a,.5,.6);
     const panel=new THREE.Mesh(box(1.2,1.5,.3),mt); panel.position.set(px,py+1.3,pz); panel.castShadow=true; scene.add(panel);
     mesh(box(.5,1.1,.28),std(0x0e1013,.5,.7),px-1.0,py+1.2,pz); mesh(box(.5,1.1,.28),std(0x0e1013,.5,.7),px+1.0,py+1.2,pz);
-    _powerLever=new THREE.Mesh(box(.09,.42,.09),std(0x8a2a2a,.4,.6)); _powerLever.position.set(px+.28,py+1.25,pz-.18); _powerLever.rotation.z=.6; scene.add(_powerLever);
-    _powerLED=new THREE.Mesh(sph(.06,8,6),new THREE.MeshBasicMaterial({color:0xff2200})); _powerLED.position.set(px-.3,py+1.7,pz-.18); scene.add(_powerLED);
+    it._lever=new THREE.Mesh(box(.09,.42,.09),std(0x8a2a2a,.4,.6)); it._lever.position.set(px+.28,py+1.25,pz-.18); it._lever.rotation.z=.6; scene.add(it._lever);
+    it._led=new THREE.Mesh(sph(.06,8,6),new THREE.MeshBasicMaterial({color:0xff2200})); it._led.position.set(px-.3,py+1.7,pz-.18); scene.add(it._led);
   }
   // --- hidden gramophones (music easter egg) ---
   for(const gp of [[-35,-8],[10,32],[36,8]]){
@@ -3098,7 +3100,10 @@ const INTERACTABLES=[
   // ---- mystery box (starts in foyer) + pack-a-punch (lab) ----
   {type:'mystery',x:0,z:28,range:2.4,cost:950,label:'Mystery Box'},
   {type:'pap',x:0,z:-30.4,range:2.6,cost:2500,label:'Pack-a-Punch'},
-  {type:'power',x:-30,z:-20,range:2.6,cost:1500,label:'Power Switch'}, // relocated to the ground-floor Morgue (was basement)
+  // POWER: three switches spread to the map's extremities — throw ALL 3 to restore power (free; the point is finding them)
+  {type:'power',x:0,  z:-36, range:2.6,cost:0,label:'Power Switch',thrown:false}, // Undercroft (back crawl-corridor)
+  {type:'power',x:-30,z:-20, range:2.6,cost:0,label:'Power Switch',thrown:false}, // far-west (Morgue / Theater West end)
+  {type:'power',x:30, z:30,  range:2.6,cost:0,label:'Power Switch',thrown:false}, // far-east (Séance / Courtyard East end)
   {type:'gramophone',x:-35,z:-8,range:2.2,gid:0,label:'Gramophone'},
   {type:'gramophone',x:10, z:32,range:2.2,gid:1,label:'Gramophone'},
   {type:'gramophone',x:36, z:8, range:2.2,gid:2,label:'Gramophone'},
@@ -3846,14 +3851,18 @@ function playEasterEggMusic(){
 
 function handlePower(it){
   if(POWER_ON){ flashMsg('Power is already on'); return; }
-  if(PL.points<it.cost){ flashMsg('Not enough points! (Need '+it.cost+')'); return; }
-  PL.points-=it.cost;
-  setPower(true);
+  if(it.thrown){ flashMsg('That switch is already thrown'); return; }
+  it.thrown=true; powerThrown++;
+  try{ SFX('door'); }catch(e){}
+  if(it._lever) it._lever.rotation.z=-0.6;                                   // flip the lever
+  if(it._led) it._led.material.color.setHex(0xffcc00);                       // this switch armed (amber)
+  if(powerThrown>=3){ setPower(true); }                                      // all 3 -> power on
+  else { flashMsg(`⚡ Power switch thrown — ${powerThrown} of 3 (find the others)`); }
   updateHUD();
 }
 
 function handleTeleport(it){
-  if(!POWER_ON){ flashMsg('⚡ Teleporter needs POWER (Lab)'); return; }
+  if(!POWER_ON){ flashMsg(`⚡ Teleporter needs POWER — throw all 3 switches (${powerThrown}/3)`); return; }
   if(it.troom && ROOMS[it.troom] && !ROOMS[it.troom].open){ flashMsg('Destination is sealed — open it first'); return; }
   SFX('pap');
   PL.pos.x=it.tx; PL.pos.z=it.tz; PL.vel.set(0,0,0);
@@ -3910,7 +3919,7 @@ function perkIconFly(pk){
   setTimeout(()=>el.remove(),1150);
 }
 function handlePerk(it){
-  if(!POWER_ON){ flashMsg('⚡ Turn on the POWER first (in the Lab)'); return; }
+  if(!POWER_ON){ flashMsg(`⚡ Turn on the POWER first — throw all 3 switches (${powerThrown}/3)`); return; }
   if(PL.perks.has(it.perkKey)){flashMsg(`Already have ${it.label}!`);return;}
   if(PL.points<it.cost){flashMsg('Not enough points!');return;}
   PL.points-=it.cost;PL.perks.add(it.perkKey);
@@ -4649,6 +4658,10 @@ function updatePrompt(){
     } else if(near.type==='pap'){
       if(PL.w.pap) txt=`${PL.w.name} already Pack-a-Punched!`;
       else txt=`<span class='pk'>[E]</span> Pack-a-Punch — 2500 pts`;
+    } else if(near.type==='power'){
+      if(POWER_ON) txt=`Power is on`;
+      else if(near.thrown) txt=`Switch thrown — ${powerThrown} of 3`;
+      else txt=`<span class='pk'>[E]</span> Throw Power Switch — ${powerThrown} of 3`;
     }
     el.innerHTML=txt;el.style.display='block';nearPrompt=true;
   } else if(nearPrompt){
