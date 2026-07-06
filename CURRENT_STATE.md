@@ -2,7 +2,7 @@
 
 _Living snapshot for prompting. Updated at the end of every Map-V2 part._
 
-**Version:** v3.9.0 (synthesized-audio overhaul: per-weapon-class gunshots incl. SMG/sniper, mechanical reload/empty/weapon-switch, distinct powerup stingers, richer buy/perk, continuous rain/wind/room-tone ambient bed, master compressor + shared reverb IR, bounded voice-cap) · **Repo:** khatibapp/zombie-survival · branch `main`
+**Version:** v3.10.0 (richer procedural gun models: all 27 viewmodels detailed per class — pistols get serrations/hammer/ejection port, snipers a full scope+bipod+mag, shotguns pump/heat-shield/bead, LMG shroud+carry-handle+bipod, RPG exhaust+fins+optic, minigun clamp rings+spade grip, wonder weapons twin brass horns/tesla coils/glowing core; parts 799→935 total, avg 30→35, all cached, muzzle/tracer origins unchanged) · **Repo:** khatibapp/zombie-survival · branch `main`
 **Ship flow:** bump `package.json` → commit → `git tag vX.Y.Z` → push tag → GitHub Actions builds `ZombieSurvival-Setup-<ver>.exe` + `latest.yml` → in-app updater.
 
 ## What the game is

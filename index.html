@@ -3144,85 +3144,145 @@ function buildGunMesh(key,isPAP=false){
   const B=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
   const C=(rt,rb,h,s)=>new THREE.CylinderGeometry(rt,rb,h,s||16);
   const TG=(r,t)=>new THREE.TorusGeometry(r,t,10,20);
-  function railTop(x,y,z0,z1){const len=Math.abs(z1-z0),dir=z1>z0?1:-1;P(B(.018,.008,len),metal,x,y,(z0+z1)/2);const n=Math.max(3,Math.floor(len/.028));for(let i=0;i<n;i++)P(B(.024,.012,.012),metal,x,y+.008,z0+(i+.5)*(len/n)*dir);}
-  function ironSights(fz,rz){P(B(.006,.03,.012),metal,0,.05,fz);P(B(.028,.026,.012),metal,0,.052,rz);P(B(.01,.02,.008),darkp,0,.058,rz);}
+  function railTop(x,y,z0,z1){const len=Math.abs(z1-z0),dir=z1>z0?1:-1;P(B(.018,.008,len),metal,x,y,(z0+z1)/2);const n=Math.max(3,Math.floor(len/.04));for(let i=0;i<n;i++)P(B(.024,.012,.018),metal,x,y+.008,z0+(i+.5)*(len/n)*dir);}
+  function ironSights(fz,rz){P(B(.006,.03,.012),metal,0,.05,fz);P(B(.01,.028,.012),darkp,0,.055,fz);P(B(.028,.026,.012),metal,0,.052,rz);P(B(.01,.02,.008),darkp,0,.058,rz);} // + front post hood
   function muzzle(z,rad){P(C(rad*1.5,rad*1.4,.07,14),metal,0,.02,z,Math.PI/2);for(let i=0;i<3;i++)P(B(rad*2.5,.006,.01),darkp,0,.02,z+.005-i*.018);}
   function curvedMag(x,y,z,h,mat){const seg=5;for(let i=0;i<seg;i++){const t=i/(seg-1);P(B(.052,h/seg*1.12,.088),mat,x,y-i*(h/seg)*.9,z+t*.05,-t*.4);}P(B(.05,.02,.07),darkp,x,y-h*.86,z+.09);}
   function pistolGrip(z,mat,ang){P(B(.052,.15,.08),mat,0,-.085,z,ang);for(let i=0;i<3;i++)P(B(.055,.005,.083),darkp,0,-.05-i*.03,z);}
   function triggerAssembly(z){P(TG(.028,.006),metal,0,-.028,z,0,Math.PI/2);P(B(.008,.028,.012),metal,0,-.02,z);}
+  // ---- shared detail components (reused across classes; each gun still built once & cached) ----
+  function scope2(cz,cy,r,len,mat){mat=mat||metal; // realistic riflescope: tube + objective bell + eyepiece + turrets + lens + mounts
+    P(C(r,r,len,16),mat,0,cy,cz,Math.PI/2);
+    P(C(r*1.5,r*1.12,.075,16),mat,0,cy,cz-len/2-.02,Math.PI/2);           // objective bell
+    P(C(r*1.3,r*1.3,.01,18),glass,0,cy,cz-len/2-.056,Math.PI/2);          // front lens
+    P(C(r*1.28,r,.06,16),mat,0,cy,cz+len/2+.02,Math.PI/2);                // eyepiece
+    P(C(r*.44,r*.44,.05,12),mat,0,cy+r+.012,cz,0);                        // elevation turret
+    P(C(r*.4,r*.4,.045,12),mat,r+.012,cy,cz,0,0,Math.PI/2);               // windage turret
+    P(B(.022,.04,.024),darkp,0,cy-r*.9,cz-len*.28);P(B(.022,.04,.024),darkp,0,cy-r*.9,cz+len*.28);} // ring mounts
+  function bipod(cz,cy,drop,mat){mat=mat||metal; // folding bipod under the barrel
+    P(C(.007,.007,drop,8),mat,0,cy,cz,0,0,.55);P(C(.007,.007,drop,8),mat,0,cy,cz,0,0,-.55);
+    P(B(.03,.022,.03),mat,0,cy+drop*.4,cz);P(B(.03,.006,.012),darkp,-drop*.24,cy-drop*.42,cz);P(B(.03,.006,.012),darkp,drop*.24,cy-drop*.42,cz);} // pivot + feet
+  function foregrip(cz,mat){mat=mat||poly;P(B(.03,.085,.042),mat,0,-.072,cz);P(B(.038,.022,.05),mat,0,-.115,cz);} // vertical foregrip
+  function heatShield(cz,len,r){const n=4;P(B(.02,.05,len),metal,0,.032+r*.9,cz);for(let i=0;i<n;i++)P(TG(r,.006),metal,0,.032,cz-len/2+(i+.5)*(len/n),0,Math.PI/2);} // ventilated shroud (top strap + rings)
+  function ejPort(x,z){P(B(.005,.022,.055),darkp,x,.02,z);} // ejection port cover
 
   if(key==='thundergun'){
-    P(C(.09,.07,.46,20),S(0xcc9922,.3,.9,0x2a1e00,.4),0,0,-.2,Math.PI/2);
-    P(C(.06,.075,.26,20),S(0xddaa33,.25,.95,0x3a2a00,.5),0,0,-.5,Math.PI/2);
-    P(sph(.075,14,12),S(0x777755,.4,.8),-.05,.05,.05);
-    for(let i=0;i<4;i++)P(TG(.065,.01),new THREE.MeshBasicMaterial({color:0xffdd44}),0,0,-.08-i*.11,0,Math.PI/2);
-    pistolGrip(.02,S(0x3a2a12,.6,.2),.28);
+    // twin brass emitter horns + copper coil winding + glowing occult core
+    const brass=S(0xcc9922,.3,.9,0x2a1e00,.4), brass2=S(0xddaa33,.25,.95,0x3a2a00,.5), cop=S(0xb5651d,.35,.85,0x2a1000,.4);
+    for(const ox of [-.045,.045]){
+      P(C(.062,.05,.4,18),brass,ox,0,-.2,Math.PI/2);               // horn body
+      P(C(.045,.066,.2,18),brass2,ox,0,-.46,Math.PI/2);            // flared muzzle bell
+      for(let i=0;i<3;i++)P(TG(.055,.009),new THREE.MeshBasicMaterial({color:0xffdd44}),ox,0,-.12-i*.12,0,Math.PI/2);
+    }
+    P(C(.028,.028,.32,12),cop,0,0,-.2,Math.PI/2);                  // central coil core rod
+    for(let i=0;i<7;i++)P(TG(.048,.008),cop,0,0,-.07-i*.05,0,Math.PI/2); // copper coil winding
+    P(sph(.05,14,12),new THREE.MeshBasicMaterial({color:0xfff0a0}),0,.02,.03); // glowing core
+    P(sph(.08,14,12),S(0x777755,.4,.8),-.02,.05,.09);              // brass receiver blob
+    P(B(.03,.11,.2),brass,0,.03,.07);                              // top brace
+    pistolGrip(.02,S(0x3a2a12,.6,.2),.28); triggerAssembly(0);
   } else if(key==='wunder'){
-    P(C(.055,.065,.42,20),S(0x2a3a66,.3,.85,0x0a1a44,.5),0,0,-.18,Math.PI/2);
-    for(let i=0;i<5;i++)P(TG(.07,.014),new THREE.MeshBasicMaterial({color:0x55aaff}),0,0,-.04-i*.09,0,Math.PI/2);
-    P(C(.02,.005,.2,12),new THREE.MeshBasicMaterial({color:0x99ddff}),0,.01,-.52,Math.PI/2);
-    P(sph(.05,14,12),new THREE.MeshBasicMaterial({color:0x55aaff}),0,.01,-.64);
-    pistolGrip(.02,S(0x1a2233,.5,.4),.28);
+    // Tesla apparatus: arc-ring barrel, copper coil w/ emitter ball, electrode prongs, glowing core
+    const cas=S(0x2a3a66,.3,.85,0x0a1a44,.5), cop=S(0xb5651d,.35,.85,0x1a0800,.4);
+    P(C(.05,.06,.42,20),cas,0,0,-.18,Math.PI/2);                   // main body
+    P(B(.022,.09,.34),cas,0,.05,-.16);                             // top spine
+    for(let i=0;i<6;i++)P(TG(.068,.013),new THREE.MeshBasicMaterial({color:0x55aaff}),0,0,-.04-i*.075,0,Math.PI/2); // arc rings
+    P(C(.015,.015,.16,10),cop,0,.12,-.1,Math.PI/2);                // tesla coil rod
+    for(let i=0;i<6;i++)P(TG(.028,.006),cop,0,.12,-.03-i*.03,0,Math.PI/2); // coil winding
+    P(sph(.032,12,10),new THREE.MeshBasicMaterial({color:0xaaddff}),0,.12,-.2); // arc emitter ball
+    for(let a=0;a<3;a++){const ang=a*2.094;P(C(.007,.003,.17,8),new THREE.MeshBasicMaterial({color:0x99ddff}),Math.cos(ang)*.028,.01+Math.sin(ang)*.028,-.5,Math.PI/2);} // electrode prongs
+    P(C(.038,.052,.06,16),cas,0,.01,-.44,Math.PI/2);               // muzzle collar
+    P(sph(.05,14,12),new THREE.MeshBasicMaterial({color:0x55aaff}),0,.01,-.62); // core orb
+    pistolGrip(.02,S(0x1a2233,.5,.4),.28); triggerAssembly(0);
   } else if(key==='rpg'){
-    P(C(.045,.045,.6,18),metal,0,0,-.26,Math.PI/2);
-    P(C(.06,.045,.1,18),metal,0,0,.02,Math.PI/2);
-    P(C(.02,.05,.2,16),acc,0,0,-.6,Math.PI/2);            // warhead
-    P(C(.024,.024,.16,14),metal,0,.06,-.15,Math.PI/2);    // optic tube
-    pistolGrip(-.12,poly,.2); pistolGrip(-.32,poly,.2);
+    P(C(.045,.045,.6,18),metal,0,0,-.26,Math.PI/2);       // launch tube
+    P(C(.06,.045,.1,18),metal,0,0,.02,Math.PI/2);         // rear widening
+    P(C(.058,.022,.15,16),darkp,0,0,.13,Math.PI/2);       // rear exhaust venturi cone
+    P(C(.05,.055,.22,16),acc,0,0,-.6,Math.PI/2);          // warhead (bulbous)
+    P(C(.018,.05,.11,14),acc,0,0,-.77,Math.PI/2);         // warhead nose cone
+    for(let i=0;i<4;i++){const a=i*Math.PI/2;P(B(.004,.055,.1),metal,Math.cos(a)*.045,Math.sin(a)*.045,-.5,0,0,a);} // stabilizer fins
+    P(C(.022,.022,.16,14),metal,0,.06,-.15,Math.PI/2);    // optic tube
+    P(C(.028,.028,.03,14),metal,0,.06,-.24,Math.PI/2); P(C(.02,.02,.008,14),glass,0,.06,-.252,Math.PI/2); // optic bell + lens
+    P(B(.02,.05,.03),metal,0,.03,-.07);                   // optic mount
+    P(B(.062,.03,.15),poly,0,-.05,-.06);                  // heat-guard grip wrap under tube
+    pistolGrip(-.12,poly,.2); pistolGrip(-.32,poly,.2); triggerAssembly(-.12);
   } else if(key==='minigun'){
     for(let i=0;i<6;i++){const a=i*(Math.PI/3);P(C(.016,.016,.52,10),steel,Math.cos(a)*.05,.02+Math.sin(a)*.05,-.26,Math.PI/2);}
     P(C(.075,.075,.14,18),metal,0,.02,.02,Math.PI/2);      // rotor housing
-    P(C(.06,.07,.34,18),poly,0,0,-.1,Math.PI/2);
+    P(C(.06,.07,.34,18),poly,0,0,-.1,Math.PI/2);           // barrel clamp body
+    P(C(.072,.072,.03,18),metal,0,.02,-.46,Math.PI/2);     // front barrel clamp ring
+    P(C(.072,.072,.03,18),metal,0,.02,-.22,Math.PI/2);     // mid barrel clamp ring
+    P(C(.086,.086,.045,18),darkp,0,.02,.11,Math.PI/2);     // rear housing plate
     P(B(.16,.14,.2),darkp,.12,-.02,0); P(TG(.05,.02),metal,.12,-.02,-.02,0,Math.PI/2); // ammo drum
+    P(B(.06,.045,.06),metal,.06,-.02,-.02);                // feed chute drum->receiver
+    P(B(.03,.14,.12),poly,-.03,-.05,.15); P(B(.11,.03,.04),poly,-.02,-.1,.17); // spade grip frame
     pistolGrip(.06,poly,.15);
   } else if(key==='l96'||key==='barrett'){
     P(B(.062,.075,.62),poly,0,0,-.26);                    // long chassis
     P(C(.016,.015,.5,16),steel,0,.02,-.66,Math.PI/2); muzzle(-.9,.017);
     P(B(.03,.05,.5),metal,0,.05,-.24);                    // scope rail
-    P(C(.026,.026,.28,18),metal,0,.09,-.22,Math.PI/2);    // scope
-    P(C(.03,.03,.04,18),metal,0,.09,-.36,Math.PI/2); P(C(.022,.022,.01,18),glass,0,.09,-.37,Math.PI/2);
-    P(C(.026,.026,.04,18),metal,0,.09,-.08,Math.PI/2);
+    scope2(-.22,.1,.03,.3);                               // detailed riflescope
     P(B(.05,.09,.24),poly,0,-.02,.14); P(B(.03,.12,.06),poly,0,-.09,.2); // thumbhole stock
-    if(key==='barrett'){P(B(.14,.02,.5),acc,0,.08,-.24);} // top rail accent
+    P(B(.055,.03,.16),poly,0,.05,.13);                    // cheek riser
+    bipod(-.6,-.02,.16);                                  // folding bipod near muzzle
+    P(B(.06,.05,.13),metal,0,-.035,-.05); P(B(.05,.08,.1),metal,0,-.095,-.05); // mag housing + box mag
+    if(key==='barrett'){P(B(.14,.02,.5),acc,0,.088,-.24); P(C(.05,.075,.1,10),metal,0,-.06,-.86,Math.PI/2);} // rail accent + big muzzle brake
+    else { P(C(.04,.06,.03,6),metal,0,-.06,-.7,Math.PI/2); } // muzzle brake
     pistolGrip(-.02,poly,.3); triggerAssembly(-.04);
-    P(C(.04,.06,.03,6),metal,0,-.06,-.7,Math.PI/2);       // muzzle brake big
   } else if(key==='kar98'){
     P(B(.05,.07,.5),wood,0,-.005,-.14);                   // wood stock/body
     P(C(.014,.014,.5,14),steel,0,.03,-.5,Math.PI/2);      // long barrel
     P(B(.03,.05,.42),wood,0,-.02,-.42);                   // forestock
-    P(C(.012,.012,.09,10),metal,.035,.04,.02,0,0,Math.PI/2); P(sph(.02,10,8),metal,.08,.04,.02); // bolt handle
-    ironSights(-.5,-.06); P(B(.05,.12,.14),wood,0,-.03,.18); // butt
+    P(C(.021,.021,.14,14),metal,0,.03,-.02,Math.PI/2);    // receiver
+    P(C(.013,.013,.12,10),metal,.02,.04,.03,0,0,Math.PI/2); P(sph(.018,10,8),metal,.075,.02,.03); // bolt body + handle knob
+    P(TG(.022,.006),metal,0,.02,-.42,0,Math.PI/2); P(TG(.022,.006),metal,0,.02,-.6,0,Math.PI/2); // barrel bands
+    P(B(.01,.02,.05),metal,0,.05,-.63);                   // bayonet lug / front sight base
+    P(B(.03,.024,.05),darkp,0,-.055,-.05);                // magazine floorplate
+    P(B(.006,.03,.03),wood,-.028,-.02,-.2);               // sling slot
+    ironSights(-.58,-.06); P(B(.05,.12,.14),wood,0,-.03,.18); // butt
     triggerAssembly(-.02);
   } else if(key==='spas12'||key==='trenchgun'){
     const fw=key==='trenchgun'?wood:poly;
-    P(B(.07,.085,.44),poly,0,0,-.2);
+    P(B(.07,.085,.44),poly,0,0,-.2);                      // receiver
     P(C(.024,.024,.4,16),steel,0,.032,-.44,Math.PI/2);    // barrel
     P(C(.02,.02,.34,16),metal,0,-.02,-.4,Math.PI/2);      // tube mag under
+    P(C(.022,.022,.03,16),metal,0,-.02,-.585,Math.PI/2);  // mag cap
     P(C(.03,.03,.15,16),fw,0,-.02,-.34,Math.PI/2);        // pump
-    for(let i=0;i<4;i++)P(B(.062,.006,.012),darkp,0,-.02,-.4+i*.03);
+    for(let i=0;i<4;i++)P(B(.062,.006,.012),darkp,0,-.02,-.4+i*.03); // pump grooves
     ironSights(-.5,-.02);
-    P(B(.06,.08,.22),fw,0,-.01,.16); P(B(.05,.11,.06),fw,0,-.08,.12);
+    ejPort(.036,-.12);                                    // ejection port
+    P(sph(.007,8,6),acc,0,.062,-.62);                     // front bead sight
+    P(B(.06,.08,.22),fw,0,-.01,.16); P(B(.05,.11,.06),fw,0,-.08,.12); // stock + grip
     triggerAssembly(-.02);
-    if(key==='spas12')P(B(.014,.02,.42),acc,0,.07,-.2);
+    if(key==='trenchgun'){ heatShield(-.42,.32,.036); P(B(.012,.035,.06),metal,0,.06,-.6); } // WWI ventilated heat shield + bayonet lug
+    else { P(B(.014,.02,.42),acc,0,.07,-.2); P(B(.05,.03,.05),metal,0,.04,.2); }             // SPAS top rail + folding-stock hinge
   } else if(key==='m60'){
-    P(B(.07,.09,.55),poly,0,0,-.22);
+    P(B(.07,.09,.55),poly,0,0,-.22);                      // receiver
     P(C(.018,.016,.5,16),steel,0,.03,-.58,Math.PI/2); muzzle(-.86,.02);
+    heatShield(-.52,.28,.032);                            // ventilated barrel shroud
+    P(C(.013,.013,.32,12),metal,0,-.008,-.52,Math.PI/2);  // gas cylinder under barrel
     P(B(.13,.07,.18),metal,0,-.05,-.12); P(B(.14,.02,.19),acc,0,-.02,-.12); // belt box
     for(let i=0;i<5;i++)P(C(.01,.01,.03,8),S(0xcaa24a,.4,.8),-.05+i*.025,-.02,-.02,0,0,Math.PI/2); // belt rounds
     P(B(.03,.05,.4),metal,0,.055,-.2); railTop(0,.08,-.02,-.4);
-    P(B(.06,.09,.22),poly,0,-.01,.16);
+    P(B(.02,.05,.11),metal,0,.085,-.44); P(B(.1,.02,.03),metal,0,.115,-.44); // carry handle
+    P(B(.06,.09,.22),poly,0,-.01,.16);                    // stock
     pistolGrip(.02,poly,.2); triggerAssembly(0);
-    P(C(.01,.01,.16,8),metal,0,-.12,-.5,Math.PI/2,0,.5); P(C(.01,.01,.16,8),metal,0,-.12,-.5,Math.PI/2,0,-.5); // bipod
+    bipod(-.62,-.05,.18);                                 // folding bipod (muzzle end)
   } else if(key==='m1911'||key==='deagle'||key==='python'){
     const bigp=key==='deagle';
     P(B(bigp?.066:.06,bigp?.062:.052,.24),metal,0,.032,-.11);   // slide
-    for(let i=0;i<5;i++)P(B((bigp?.068:.062),.028,.007),darkp,0,.032,-.02-i*.013); // serrations
+    for(let i=0;i<5;i++)P(B((bigp?.068:.062),.028,.007),darkp,0,.032,-.02-i*.013); // rear serrations
+    for(let i=0;i<3;i++)P(B((bigp?.068:.062),.026,.006),darkp,0,.032,-.185-i*.014); // front serrations
     P(B(.058,.05,.2),poly,0,-.015,-.09);                        // frame
     P(C(.015,.015,.07,14),steel,0,.032,-.25,Math.PI/2);         // barrel
-    P(B(.006,.016,.008),metal,0,.062,-.21); P(B(.024,.014,.01),metal,0,.058,-.005); // sights
+    P(B(.006,.02,.01),metal,0,.064,-.22); P(B(.006,.008,.01),acc,0,.066,-.221); // front sight post + dot
+    P(B(.026,.016,.012),metal,0,.058,-.005); P(B(.012,.006,.01),darkp,0,.06,-.003); // rear sight + notch
     P(B(bigp?.016:.012,.018,.22),acc,0,.062,-.11);              // slide top accent
+    ejPort(bigp?.035:.032,-.08);                                // ejection port
+    P(B(.014,.026,.016),metal,0,.05,.03);                       // hammer spur
+    P(B(.03,.02,.05),poly,0,.028,.045);                         // beavertail
+    P(B(.048,.02,.058),darkp,0,-.15,0);                         // magazine baseplate
     pistolGrip(-.005,poly,.32); triggerAssembly(-.06);
-    if(key==='python'){P(C(.03,.03,.07,14),metal,0,.01,-.14,0,0,Math.PI/2);P(C(.014,.014,.24,14),steel,0,.03,-.26,Math.PI/2);} // revolver cylinder + longer barrel
+    if(key==='python'){P(C(.03,.03,.07,14),metal,0,.01,-.14,0,0,Math.PI/2);P(C(.014,.014,.24,14),steel,0,.03,-.26,Math.PI/2);P(C(.031,.031,.045,6),darkp,0,.01,-.14,0,0,Math.PI/2);} // revolver cylinder + barrel + fluted shroud
     if(bigp)P(B(.02,.05,.1),metal,0,-.06,-.24);                 // deagle underlug
   } else {
     // ---- detailed generic AR / SMG ----
@@ -3259,6 +3319,10 @@ function buildGunMesh(key,isPAP=false){
     triggerAssembly(isBull? zc+L*.34 : zc+.02);
     P(B(.008,.02,.05),metal,.034,.03,zc+.05);                  // charging handle
     P(B(.012,.016,L*.55),acc,.031,.006,zc);                    // side accent
+    ejPort(.032, zc+.04);                                      // ejection port / brass deflector
+    if(!['m16','scar','aug','famas','galil','m14'].includes(key)) P(B(.008,.032,.012),metal,0,.05,bz-.02); // front sight post (iron-sight guns)
+    if(['mp7','scar','uzi'].includes(key)) foregrip(hz-.02, poly); // vertical foregrip on select tacticals
+    if(isW && !isBull) P(TG(.03,.006),metal,0,0,zc-L*.34,0,Math.PI/2); // barrel band (wood rifles)
   }
   return g;
 }
