@@ -262,26 +262,58 @@ body{background:#000;overflow:hidden;font-family:'Arial',sans-serif;}
 const SETTINGS={volume:70,sens:1.0,fov:75,xhair:'cross',tracers:true};
 (function(){try{const s=JSON.parse(localStorage.getItem('zs_settings')||'{}');Object.assign(SETTINGS,s);}catch(e){}})();
 function saveSettings(){try{localStorage.setItem('zs_settings',JSON.stringify(SETTINGS));}catch(e){}}
-let _masterBus=null;
+let _masterBus=null, _reverbSend=null;
 function getMB(){
   const a=getAC();
   if(!_masterBus||_masterBus.context.state==='closed'){
     _masterBus=a.createGain();
     _masterBus.gain.value=MUTED?0:SETTINGS.volume/100;
-    _masterBus.connect(a.destination);
-    // Parallel convolution reverb send — gives every sound a realistic room tail.
+    // Master DynamicsCompressor: adds punch to transients (gunfire) AND acts as a
+    // brick-wall safety so a horde + full-auto + explosion can't clip/deafen. Built
+    // once here (cached with the bus), never per-sound. Everything (dry + reverb wet)
+    // routes THROUGH it, so it protects the summed signal.
+    let out=a.destination;
+    try{
+      const comp=a.createDynamicsCompressor();
+      comp.threshold.value=-9; comp.knee.value=8; comp.ratio.value=5;
+      comp.attack.value=.003; comp.release.value=.13;
+      comp.connect(a.destination); out=comp;
+    }catch(e){}
+    _masterBus.connect(out);
+    // Parallel convolution reverb send — ONE synthesized impulse response (decaying
+    // noise), generated + cached here ONCE. _reverbSend is exposed at module scope so
+    // individual voices (snipers, explosions) can push EXTRA signal through the SAME
+    // cached IR for a bigger tail, instead of ever building a second convolver.
     try{
       const conv=a.createConvolver();
-      const dur=1.8,len=Math.floor(a.sampleRate*dur),buf=a.createBuffer(2,len,a.sampleRate);
-      for(let ch=0;ch<2;ch++){const d=buf.getChannelData(ch);for(let i=0;i<len;i++){const t=i/len;d[i]=(Math.random()*2-1)*Math.pow(1-t,3.0);}}
+      const dur=2.0,len=Math.floor(a.sampleRate*dur),buf=a.createBuffer(2,len,a.sampleRate);
+      for(let ch=0;ch<2;ch++){const d=buf.getChannelData(ch);for(let i=0;i<len;i++){const t=i/len;
+        // early reflections (sparse) + smooth exponential tail = roomier, less "white"
+        d[i]=(Math.random()*2-1)*Math.pow(1-t,2.6)*(i<len*0.06?1.6:1);}}
       conv.buffer=buf;
-      const wet=a.createGain();wet.gain.value=0.22;
+      const wet=a.createGain();wet.gain.value=0.20;
       const pre=a.createBiquadFilter();pre.type='lowpass';pre.frequency.value=3200; // darker, roomy tail
-      _masterBus.connect(pre);pre.connect(conv);conv.connect(wet);wet.connect(a.destination);
+      const hp=a.createBiquadFilter();hp.type='highpass';hp.frequency.value=180;   // keep sub out of the tail
+      _masterBus.connect(pre);pre.connect(hp);hp.connect(conv);conv.connect(wet);wet.connect(out);
+      _reverbSend=pre; // extra-tail send point (pre-filter -> shared convolver)
     }catch(e){}
   }
   return _masterBus;
 }
+// ---- Voice budget: bounds simultaneous synth nodes so a horde + full-auto never
+// crackles. O(1): each voice cluster adds an estimated node count, auto-removed after
+// its duration (no leak — every add schedules its matching remove). Essential feedback
+// (gunfire, hits, powerups) always plays but SHEDS optional layers when busy; ambient
+// vocals (groans/breath) skip entirely when the graph is slammed. ----
+let _voices=0;
+const VOICE_SOFT=48, VOICE_HARD=84;
+function _grab(n,dur){ _voices+=n; const t=Math.max(60,(dur+.15)*1000); setTimeout(()=>{_voices=Math.max(0,_voices-n);},t); }
+function _busy(){ return _voices>VOICE_SOFT; }     // shed optional layers
+function _slammed(){ return _voices>VOICE_HARD; }  // drop non-essential sounds
+// Buffer source on the shared noise buffer, started at a random offset so repeated
+// transients aren't spectrally identical (cheap per-trigger variation).
+function _noise(ac){ const s=ac.createBufferSource(); s.buffer=makeNoiseBuf(ac); return s; }
+function _noff(){ return Math.random()*1.6; } // random read offset into the 2s noise buffer
 function onSetting(key,el){
   if(key==='vol'){SETTINGS.volume=+el.value;document.getElementById('s-vol-v').textContent=el.value+'%';if(_masterBus&&!MUTED)_masterBus.gain.value=SETTINGS.volume/100;}
   else if(key==='sens'){SETTINGS.sens=el.value/100;document.getElementById('s-sens-v').textContent=(SETTINGS.sens).toFixed(1)+'x';}
@@ -344,55 +376,95 @@ function SFX(type) {
   try {
     const ac = getAC();
     const now = ac.currentTime;
-    if (type === 'pistol' || type === 'rifle' || type === 'heavy' || type === 'shotgun' || type === 'wonder') {
-      const isShotgun=type==='shotgun',isHeavy=type==='heavy',isWonder=type==='wonder';
-      const dur=isShotgun?.4:isHeavy?.35:isWonder?.55:.24;
-      // ---- Sharp transient crack (high-freq noise burst) ----
-      const crack=ac.createBufferSource();crack.buffer=makeNoiseBuf(ac,.04);
-      const chpf=ac.createBiquadFilter();chpf.type='highpass';chpf.frequency.value=isShotgun?1200:3500;
-      const clpf=ac.createBiquadFilter();clpf.type='lowpass';clpf.frequency.value=isShotgun?4000:12000;
+    // Voice-budget shed: when the graph is slammed (huge horde all vocalizing at once),
+    // drop AMBIENT/non-essential vocals so gameplay-critical feedback (gunfire, hits,
+    // powerups, hurt) always plays clean. These are the frequent, expensive contributors.
+    if(_slammed() && (type==='zgroan'||type==='zsnarl'||type==='zspawn'||type==='distant_scream'||type==='ambient_breath'||type==='heartbeat')) return;
+    if (type==='pistol'||type==='smg'||type==='rifle'||type==='heavy'||type==='shotgun'||type==='sniper'||type==='wonder') {
+      // Per-class gunshot voice. Every shot layers: (1) a filtered NOISE-BURST transient
+      // "crack", (2) a tonal noise BODY with a downward filter sweep, (3) a pitch-dropping
+      // SUB thump, (4) a short mechanical ACTION tick — plus snipers push extra signal into
+      // the cached reverb for a big tail. Levels/EQ/decay differ per class so pistols read
+      // punchy-short, SMGs snappy, rifles crack+tail, shotguns boomy, LMGs heavy, snipers huge.
+      const P={
+        pistol: {dur:.22,cHi:3200,cLo:11000,cG:2.6,bF:820, bG:3.0,sF:78, sG:2.6,sT:.13,tk:2600,tkG:.45,rv:0},
+        smg:    {dur:.17,cHi:3900,cLo:13500,cG:2.3,bF:1050,bG:2.3,sF:70, sG:1.7,sT:.08,tk:3600,tkG:.55,rv:0},
+        rifle:  {dur:.26,cHi:2900,cLo:12000,cG:3.1,bF:900, bG:3.3,sF:72, sG:2.9,sT:.14,tk:2400,tkG:.45,rv:.18},
+        shotgun:{dur:.42,cHi:1050,cLo:4200, cG:3.2,bF:1300,bG:4.5,sF:80, sG:3.6,sT:.17,tk:1500,tkG:.7, rv:.12},
+        heavy:  {dur:.36,cHi:2500,cLo:9000, cG:3.7,bF:900, bG:4.9,sF:100,sG:4.2,sT:.20,tk:1800,tkG:.75,rv:.14},
+        sniper: {dur:.34,cHi:2300,cLo:12500,cG:4.4,bF:1000,bG:4.4,sF:62, sG:3.7,sT:.19,tk:2000,tkG:.55,rv:.62},
+        wonder: {dur:.5, cHi:1800,cLo:9000, cG:2.4,bF:3000,bG:2.2,sF:220,sG:2.0,sT:.16,tk:0,   tkG:0,  rv:.3},
+      };
+      const p=P[type]||P.rifle;
+      const jit=1+(Math.random()-.5)*.12;            // ±6% per-shot pitch/level variation
+      const dur=p.dur, busy=_busy();
+      _grab(busy?7:13, dur+.12);
+      // (1) transient crack — always
+      const crack=_noise(ac);
+      const chpf=ac.createBiquadFilter();chpf.type='highpass';chpf.frequency.value=p.cHi;
+      const clpf=ac.createBiquadFilter();clpf.type='lowpass';clpf.frequency.value=p.cLo*jit;
       const cg=ac.createGain();
-      cg.gain.setValueAtTime(0,now);cg.gain.linearRampToValueAtTime(isShotgun?3:isHeavy?4:2.5,now+.002);
-      cg.gain.exponentialRampToValueAtTime(.001,now+.04);
+      cg.gain.setValueAtTime(0,now);cg.gain.linearRampToValueAtTime(p.cG*jit,now+.0016);
+      cg.gain.exponentialRampToValueAtTime(.0005,now+.045);
       crack.connect(chpf);chpf.connect(clpf);clpf.connect(cg);cg.connect(getMB());
-      crack.start(now);crack.stop(now+.05);
-      // ---- Body/boom (low noise + sub osc) ----
-      const src=ac.createBufferSource();src.buffer=makeNoiseBuf(ac,dur+.08);
+      crack.start(now,_noff());crack.stop(now+.06);
+      // (2) body/boom — always; downward filter sweep gives the "collapse"
+      const src=_noise(ac);
       const lpf=ac.createBiquadFilter();lpf.type='lowpass';
-      lpf.frequency.setValueAtTime(isShotgun?1200:isHeavy?900:isWonder?3000:800,now);
-      lpf.frequency.exponentialRampToValueAtTime(60,now+dur*.7);
-      lpf.Q.value=1.4;
+      lpf.frequency.setValueAtTime(p.bF*jit,now);lpf.frequency.exponentialRampToValueAtTime(60,now+dur*.7);lpf.Q.value=1.3;
       const hpf=ac.createBiquadFilter();hpf.type='highpass';hpf.frequency.value=55;
-      const gv=isHeavy?5:isShotgun?4.5:isWonder?2.2:3.2;
       const g=ac.createGain();
-      g.gain.setValueAtTime(0,now);g.gain.linearRampToValueAtTime(gv,now+.004);
+      g.gain.setValueAtTime(0,now);g.gain.linearRampToValueAtTime(p.bG*jit,now+.004);
       g.gain.exponentialRampToValueAtTime(.001,now+dur);
       src.connect(hpf);hpf.connect(lpf);lpf.connect(g);g.connect(getMB());
-      src.start(now);src.stop(now+dur+.1);
-      // ---- Sub thump (kick-like) ----
-      const osc=ac.createOscillator();
-      osc.frequency.setValueAtTime(isHeavy?100:isShotgun?80:isWonder?220:70,now);
-      osc.frequency.exponentialRampToValueAtTime(18,now+(isHeavy?.18:.12));
-      const og=ac.createGain();
-      og.gain.setValueAtTime(gv*.9,now);og.gain.exponentialRampToValueAtTime(.001,now+(isHeavy?.22:.16));
-      osc.connect(og);og.connect(getMB());osc.start(now);osc.stop(now+.25);
+      src.start(now,_noff());src.stop(now+dur+.1);
+      // (2b) extra reverb tail through the CACHED IR (big for snipers) — sparingly
+      if(p.rv>0 && _reverbSend && !busy){ const rv=ac.createGain();rv.gain.value=p.rv;g.connect(rv);rv.connect(_reverbSend); }
+      if(!busy){
+        // (3) sub thump (kick-like body) — shed when the graph is busy
+        const osc=ac.createOscillator();
+        osc.frequency.setValueAtTime(p.sF*jit,now);osc.frequency.exponentialRampToValueAtTime(18,now+p.sT);
+        const og=ac.createGain();
+        og.gain.setValueAtTime(p.sG*.9,now);og.gain.exponentialRampToValueAtTime(.001,now+p.sT+.04);
+        osc.connect(og);og.connect(getMB());osc.start(now);osc.stop(now+p.sT+.1);
+        // (4) mechanical action tick (bolt/slide) — tiny bandpass noise blip just after
+        if(p.tkG){ const tk=_noise(ac);
+          const tbp=ac.createBiquadFilter();tbp.type='bandpass';tbp.frequency.value=p.tk*jit;tbp.Q.value=1.1;
+          const tg=ac.createGain();tg.gain.setValueAtTime(0,now+.005);tg.gain.linearRampToValueAtTime(p.tkG,now+.009);tg.gain.exponentialRampToValueAtTime(.001,now+.05);
+          tk.connect(tbp);tbp.connect(tg);tg.connect(getMB());tk.start(now+.005,_noff());tk.stop(now+.06); }
+      }
     } else if (type==='empty') {
-      const o=ac.createOscillator(),g=ac.createGain();
-      o.frequency.value=280;o.type='square';
-      g.gain.setValueAtTime(.12,now);g.gain.exponentialRampToValueAtTime(.001,now+.06);
-      o.connect(g);g.connect(getMB());o.start(now);o.stop(now+.08);
+      // dry mechanical firing-pin click (no tonal beep): hi noise tick + a tiny low knock
+      const tk=_noise(ac);
+      const bp=ac.createBiquadFilter();bp.type='bandpass';bp.frequency.value=3200;bp.Q.value=1.4;
+      const g=ac.createGain();g.gain.setValueAtTime(0,now);g.gain.linearRampToValueAtTime(.5,now+.002);g.gain.exponentialRampToValueAtTime(.001,now+.04);
+      tk.connect(bp);bp.connect(g);g.connect(getMB());tk.start(now,_noff());tk.stop(now+.05);
+      const kn=_noise(ac);
+      const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=380;
+      const g2=ac.createGain();g2.gain.setValueAtTime(.22,now+.006);g2.gain.exponentialRampToValueAtTime(.001,now+.05);
+      kn.connect(lp);lp.connect(g2);g2.connect(getMB());kn.start(now+.006,_noff());kn.stop(now+.06);
     } else if (type==='reload') {
-      [0,0.12,0.22].forEach((t,i)=>{
-        const o=ac.createOscillator(),g=ac.createGain();
-        o.frequency.value=i===2?800:400+i*100;o.type='sine';
-        g.gain.setValueAtTime(.14,now+t);g.gain.exponentialRampToValueAtTime(.001,now+t+.1);
-        o.connect(g);g.connect(getMB());o.start(now+t);o.stop(now+t+.12);
+      // mechanical reload: mag release, mag seat "clack", charging-handle rack — layered
+      // noise transients through resonant bandpasses (metal) + a low "thunk" knock each.
+      const ev=[{t:0,f:2600,q:2,gv:.4,kf:150},{t:.12,f:1700,q:1.6,gv:.5,kf:90},{t:.24,f:3200,q:2.2,gv:.55,kf:200}];
+      ev.forEach(({t,f,q,gv,kf})=>{
+        const n=_noise(ac);
+        const bp=ac.createBiquadFilter();bp.type='bandpass';bp.frequency.value=f;bp.Q.value=q;
+        const hp=ac.createBiquadFilter();hp.type='highpass';hp.frequency.value=600;
+        const g=ac.createGain();g.gain.setValueAtTime(0,now+t);g.gain.linearRampToValueAtTime(gv,now+t+.003);g.gain.exponentialRampToValueAtTime(.001,now+t+.06);
+        n.connect(hp);hp.connect(bp);bp.connect(g);g.connect(getMB());n.start(now+t,_noff());n.stop(now+t+.08);
+        const o=ac.createOscillator();o.type='triangle';o.frequency.setValueAtTime(kf,now+t);o.frequency.exponentialRampToValueAtTime(kf*.5,now+t+.05);
+        const og=ac.createGain();og.gain.setValueAtTime(.18,now+t);og.gain.exponentialRampToValueAtTime(.001,now+t+.07);
+        o.connect(og);og.connect(getMB());o.start(now+t);o.stop(now+t+.09);
       });
-      // Click
-      const src=ac.createBufferSource();
-      src.buffer=makeNoiseBuf(ac,.05);
-      const g=ac.createGain();g.gain.setValueAtTime(.3,now+.2);g.gain.exponentialRampToValueAtTime(.001,now+.25);
-      src.connect(g);g.connect(getMB());src.start(now+.2);src.stop(now+.28);
+    } else if (type==='wswitch') {
+      // weapon handling: a soft cloth/metal shuffle (two quick muted noise ticks)
+      [{t:0,f:900,gv:.3},{t:.06,f:1600,gv:.22}].forEach(({t,f,gv})=>{
+        const n=_noise(ac);
+        const bp=ac.createBiquadFilter();bp.type='bandpass';bp.frequency.value=f;bp.Q.value=1;
+        const g=ac.createGain();g.gain.setValueAtTime(0,now+t);g.gain.linearRampToValueAtTime(gv,now+t+.004);g.gain.exponentialRampToValueAtTime(.001,now+t+.05);
+        n.connect(bp);bp.connect(g);g.connect(getMB());n.start(now+t,_noff());n.stop(now+t+.06);
+      });
     } else if (type==='zhit') {
       const src=ac.createBufferSource();src.buffer=makeNoiseBuf(ac,.18);
       const lpf=ac.createBiquadFilter();lpf.type='lowpass';lpf.frequency.value=500;
@@ -426,12 +498,56 @@ function SFX(type) {
       g.gain.setValueAtTime(.55,now);g.gain.exponentialRampToValueAtTime(.001,now+.3);
       o.connect(g);g.connect(getMB());o.start(now);o.stop(now+.35);
     } else if (type==='buy') {
-      [440,550,660,880].forEach((f,i)=>{
-        const o=ac.createOscillator(),g=ac.createGain();
-        o.type='sine';o.frequency.value=f;
-        g.gain.setValueAtTime(.18,now+i*.08);g.gain.exponentialRampToValueAtTime(.001,now+i*.08+.18);
-        o.connect(g);g.connect(getMB());o.start(now+i*.08);o.stop(now+i*.08+.2);
+      // purchase confirm — warm rising motif (sine + triangle 5th body) + a soft cash "tick"
+      [523,659,784].forEach((f,i)=>{
+        const o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.value=f;
+        g.gain.setValueAtTime(0,now+i*.07);g.gain.linearRampToValueAtTime(.16,now+i*.07+.015);g.gain.exponentialRampToValueAtTime(.001,now+i*.07+.2);
+        o.connect(g);g.connect(getMB());o.start(now+i*.07);o.stop(now+i*.07+.22);
+        const o2=ac.createOscillator(),g2=ac.createGain();o2.type='triangle';o2.frequency.value=f*1.5;
+        g2.gain.setValueAtTime(0,now+i*.07);g2.gain.linearRampToValueAtTime(.05,now+i*.07+.015);g2.gain.exponentialRampToValueAtTime(.001,now+i*.07+.13);
+        o2.connect(g2);g2.connect(getMB());o2.start(now+i*.07);o2.stop(now+i*.07+.15);
       });
+      const tk=_noise(ac);const bp=ac.createBiquadFilter();bp.type='bandpass';bp.frequency.value=5000;bp.Q.value=1.2;
+      const tg=ac.createGain();tg.gain.setValueAtTime(.14,now);tg.gain.exponentialRampToValueAtTime(.001,now+.05);
+      tk.connect(bp);bp.connect(tg);tg.connect(getMB());tk.start(now,_noff());tk.stop(now+.06);
+    } else if (type==='pu_max_ammo') {
+      // bright metallic "all mags refilled" — quick ascending arpeggio + mechanical clack
+      [659,880,1047,1319].forEach((f,i)=>{const o=ac.createOscillator(),g=ac.createGain();o.type='square';o.frequency.value=f;
+        g.gain.setValueAtTime(0,now+i*.05);g.gain.linearRampToValueAtTime(.08,now+i*.05+.01);g.gain.exponentialRampToValueAtTime(.001,now+i*.05+.16);
+        const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=3500;o.connect(lp);lp.connect(g);g.connect(getMB());o.start(now+i*.05);o.stop(now+i*.05+.18);});
+      const n=_noise(ac);const bp=ac.createBiquadFilter();bp.type='bandpass';bp.frequency.value=2200;bp.Q.value=1.4;
+      const ng=ac.createGain();ng.gain.setValueAtTime(.4,now+.22);ng.gain.exponentialRampToValueAtTime(.001,now+.29);
+      n.connect(bp);bp.connect(ng);ng.connect(getMB());n.start(now+.22,_noff());n.stop(now+.3);
+    } else if (type==='pu_dbl_pts') {
+      // shiny "cash" — ascending major triad + octave sparkle
+      [523,659,784,1047].forEach((f,i)=>{const o=ac.createOscillator(),g=ac.createGain();o.type='triangle';o.frequency.value=f;
+        g.gain.setValueAtTime(0,now+i*.06);g.gain.linearRampToValueAtTime(.14,now+i*.06+.012);g.gain.exponentialRampToValueAtTime(.001,now+i*.06+.25);
+        o.connect(g);g.connect(getMB());o.start(now+i*.06);o.stop(now+i*.06+.27);
+        const o2=ac.createOscillator(),g2=ac.createGain();o2.type='sine';o2.frequency.value=f*2;
+        g2.gain.setValueAtTime(0,now+i*.06);g2.gain.linearRampToValueAtTime(.04,now+i*.06+.012);g2.gain.exponentialRampToValueAtTime(.001,now+i*.06+.14);
+        o2.connect(g2);g2.connect(getMB());o2.start(now+i*.06);o2.stop(now+i*.06+.16);});
+    } else if (type==='pu_nuke') {
+      // ominous power-down boom then rising annihilation rumble
+      const o=ac.createOscillator();o.type='sine';o.frequency.setValueAtTime(140,now);o.frequency.exponentialRampToValueAtTime(28,now+.6);
+      const og=ac.createGain();og.gain.setValueAtTime(0,now);og.gain.linearRampToValueAtTime(3.2,now+.03);og.gain.exponentialRampToValueAtTime(.001,now+.7);
+      o.connect(og);og.connect(getMB());o.start(now);o.stop(now+.75);
+      const src=_noise(ac);const lpf=ac.createBiquadFilter();lpf.type='lowpass';lpf.frequency.setValueAtTime(120,now+.15);lpf.frequency.exponentialRampToValueAtTime(600,now+.7);
+      const g=ac.createGain();g.gain.setValueAtTime(0,now+.15);g.gain.linearRampToValueAtTime(2.2,now+.55);g.gain.exponentialRampToValueAtTime(.001,now+1.1);
+      src.connect(lpf);lpf.connect(g);g.connect(getMB());src.start(now+.15,_noff());src.stop(now+1.15);
+    } else if (type==='pu_insta_kill') {
+      // menacing detuned power surge — two saws + waveshaper grit
+      const shaper=ac.createWaveShaper();const cv=new Float32Array(256);for(let i=0;i<256;i++){const x=i*2/256-1;cv[i]=Math.tanh(x*3);}shaper.curve=cv;
+      const g=ac.createGain();g.gain.setValueAtTime(0,now);g.gain.linearRampToValueAtTime(.5,now+.04);g.gain.setValueAtTime(.42,now+.35);g.gain.exponentialRampToValueAtTime(.001,now+.7);
+      const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.setValueAtTime(500,now);lp.frequency.linearRampToValueAtTime(1600,now+.5);
+      [110,110*1.5,164].forEach((f,i)=>{const o=ac.createOscillator();o.type='sawtooth';o.frequency.setValueAtTime(f,now);o.frequency.linearRampToValueAtTime(f*1.18,now+.5);o.connect(shaper);o.start(now);o.stop(now+.72);});
+      shaper.connect(lp);lp.connect(g);g.connect(getMB());
+    } else if (type==='pu_fire_sale') {
+      // playful carnival flourish — bouncy square arpeggio up+down
+      [523,659,784,1047,784,659].forEach((f,i)=>{const o=ac.createOscillator(),g=ac.createGain();o.type='square';o.frequency.value=f;
+        const vib=ac.createOscillator(),vg=ac.createGain();vib.frequency.value=6;vg.gain.value=8;vib.connect(vg);vg.connect(o.frequency);
+        g.gain.setValueAtTime(0,now+i*.09);g.gain.linearRampToValueAtTime(.09,now+i*.09+.01);g.gain.exponentialRampToValueAtTime(.001,now+i*.09+.13);
+        const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=2600;o.connect(lp);lp.connect(g);g.connect(getMB());
+        o.start(now+i*.09);o.stop(now+i*.09+.15);vib.start(now+i*.09);vib.stop(now+i*.09+.15);});
     } else if (type==='mystery') {
       // Short close chime
       [523,415,330].forEach((f,i)=>{
@@ -462,11 +578,17 @@ function SFX(type) {
         o2.connect(g2);g2.connect(getMB());o2.start(now+t);o2.stop(now+t+.18);
       });
     } else if (type==='perk') {
-      [440,550,660,770,880,1100].forEach((f,i)=>{
-        const o=ac.createOscillator(),g=ac.createGain();
-        o.type='sine';o.frequency.value=f;
-        g.gain.setValueAtTime(.14,now+i*.06);g.gain.exponentialRampToValueAtTime(.001,now+i*.06+.18);
-        o.connect(g);g.connect(getMB());o.start(now+i*.06);o.stop(now+i*.06+.2);
+      // "glug" swallow (pitch-wobbled lowpassed body) THEN the reviving sparkle motif
+      const glug=ac.createOscillator();glug.type='sawtooth';
+      const wob=ac.createOscillator(),wg=ac.createGain();wob.frequency.value=11;wg.gain.value=26;wob.connect(wg);
+      glug.frequency.setValueAtTime(150,now);glug.frequency.linearRampToValueAtTime(110,now+.3);wg.connect(glug.frequency);
+      const glp=ac.createBiquadFilter();glp.type='lowpass';glp.frequency.value=650;
+      const gg=ac.createGain();gg.gain.setValueAtTime(0,now);gg.gain.linearRampToValueAtTime(.32,now+.04);gg.gain.exponentialRampToValueAtTime(.001,now+.34);
+      glug.connect(glp);glp.connect(gg);gg.connect(getMB());glug.start(now);glug.stop(now+.36);wob.start(now);wob.stop(now+.36);
+      [660,770,880,1100].forEach((f,i)=>{
+        const o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.value=f;
+        g.gain.setValueAtTime(0,now+.3+i*.06);g.gain.linearRampToValueAtTime(.13,now+.3+i*.06+.012);g.gain.exponentialRampToValueAtTime(.001,now+.3+i*.06+.2);
+        o.connect(g);g.connect(getMB());o.start(now+.3+i*.06);o.stop(now+.3+i*.06+.22);
       });
     } else if (type==='pap') {
       // Upgrade jingle — dramatic ascending fanfare
@@ -514,6 +636,7 @@ function SFX(type) {
       const og=ac.createGain();og.gain.setValueAtTime(6,now);og.gain.exponentialRampToValueAtTime(.001,now+.25);
       o.connect(og);og.connect(getMB());o.start(now);o.stop(now+.28);
     } else if (type==='zspawn') {
+      _grab(6,.95);
       // Deep ground rumble as zombie rises
       const src=ac.createBufferSource();src.buffer=makeNoiseBuf(ac,.9);
       const lpf=ac.createBiquadFilter();lpf.type='lowpass';lpf.frequency.setValueAtTime(180,now);lpf.frequency.exponentialRampToValueAtTime(40,now+.8);
@@ -555,6 +678,7 @@ function SFX(type) {
     } else if (type==='zgroan') {
       // Deep, wet, guttural moan — two detuned "throats" through vocal formants
       const dur2=1.0+Math.random()*1.2;
+      _grab(10,dur2+.2);
       const base=42+Math.random()*30;
       const g=ac.createGain();
       g.gain.setValueAtTime(0,now);
@@ -581,6 +705,7 @@ function SFX(type) {
       noise.connect(nbp);nbp.connect(ng);ng.connect(getMB());
       lfo.start(now);lfo.stop(now+dur2+.1);noise.start(now);noise.stop(now+dur2+.1);
     } else if (type==='zsnarl') {
+      _grab(7,.6);
       // Guttural close-range snarl — zombie is RIGHT on you
       const shaper=ac.createWaveShaper();
       const curve=new Float32Array(256);
@@ -603,6 +728,7 @@ function SFX(type) {
       noise.connect(nlpf);nlpf.connect(ng);ng.connect(getMB());
       o.start(now);o.stop(now+.6);lfo2.start(now);lfo2.stop(now+.6);noise.start(now);noise.stop(now+.6);
     } else if (type==='zscream') {
+      _grab(8,1.1);
       // Horrifying piercing zombie death scream
       const o=ac.createOscillator(),g=ac.createGain();
       o.type='sawtooth';
@@ -626,6 +752,7 @@ function SFX(type) {
       noise.connect(nhpf);nhpf.connect(ng);ng.connect(getMB());
       o.start(now);o.stop(now+1.1);lfo.start(now);lfo.stop(now+1.1);noise.start(now);noise.stop(now+1.1);
     } else if (type==='boss_roar') {
+      _grab(12,2.3);
       // Massive sub-bass roar — the air shakes
       const o1=ac.createOscillator(),o2=ac.createOscillator();
       o1.type='sawtooth';o2.type='square';
@@ -792,10 +919,12 @@ function SFX(type) {
 // Spatial SFX — plays sound with stereo pan + volume based on world position
 function SFX_spatial(type, wx, wz) {
   try {
+    if(_slammed()) return; // footsteps are ambient — drop them when the graph is slammed
     const ac=getAC();
     const dx=wx-CAM.position.x, dz=wz-CAM.position.z;
     const dist=Math.sqrt(dx*dx+dz*dz);
     if(dist>22) return;
+    _grab(4,.12);
     const vol=Math.max(0,1-dist/22)*0.55;
     // Pan: dot with camera right vector
     const camRight={x:Math.sin(PL.yaw+Math.PI/2),z:Math.cos(PL.yaw+Math.PI/2)};
@@ -819,6 +948,46 @@ function SFX_spatial(type, wx, wz) {
     o.start(now);o.stop(now+.09);
   } catch(e) {}
 }
+
+// ---- Continuous AMBIENT BED (rain + wind + room tone) ----
+// Built ONCE from 3 looping filtered-noise sources (reusing the shared 2s noise buffer)
+// + slow LFOs for wind gusts. This is O(1) forever — NOT re-synthesized per frame — and
+// routes through the master bus so mute/volume apply. Rain layer fades in only when the
+// per-run weather is 'rain'. Distant thunder stays event-driven (existing SFX('thunder')).
+let _ambStarted=false, _ambRainG=null;
+function startAmbientBed(){
+  if(_ambStarted) return;
+  try{
+    const ac=getAC(), mb=getMB();
+    // RAIN: hissy highpass noise + a bandpass "patter" layer, gain starts at 0 (faded per weather)
+    const rsrc=ac.createBufferSource();rsrc.buffer=makeNoiseBuf(ac);rsrc.loop=true;
+    const rhp=ac.createBiquadFilter();rhp.type='highpass';rhp.frequency.value=1600;
+    const rbp=ac.createBiquadFilter();rbp.type='bandpass';rbp.frequency.value=4200;rbp.Q.value=.4;
+    _ambRainG=ac.createGain();_ambRainG.gain.value=0;
+    rsrc.connect(rhp);rhp.connect(rbp);rbp.connect(_ambRainG);_ambRainG.connect(mb);rsrc.start(0);
+    // WIND: lowpass noise with a slow filter-sweep LFO (gusts) + slow amplitude gusts
+    const wsrc=ac.createBufferSource();wsrc.buffer=makeNoiseBuf(ac);wsrc.loop=true;
+    const wlp=ac.createBiquadFilter();wlp.type='lowpass';wlp.frequency.value=420;wlp.Q.value=3;
+    const wg=ac.createGain();wg.gain.value=.05;
+    const wlfo=ac.createOscillator();wlfo.frequency.value=.08;const wlfg=ac.createGain();wlfg.gain.value=180;
+    wlfo.connect(wlfg);wlfg.connect(wlp.frequency);wlfo.start(0);
+    const wamp=ac.createOscillator();wamp.frequency.value=.13;const wampg=ac.createGain();wampg.gain.value=.03;
+    wamp.connect(wampg);wampg.connect(wg.gain);wamp.start(0);
+    wsrc.connect(wlp);wlp.connect(wg);wg.connect(mb);wsrc.start(0);
+    // ROOM TONE: near-subsonic rumble bed for dread
+    const tsrc=ac.createBufferSource();tsrc.buffer=makeNoiseBuf(ac);tsrc.loop=true;
+    const tlp=ac.createBiquadFilter();tlp.type='lowpass';tlp.frequency.value=105;
+    const tg=ac.createGain();tg.gain.value=.04;
+    tsrc.connect(tlp);tlp.connect(tg);tg.connect(mb);tsrc.start(0);
+    _ambStarted=true; applyAmbientWeather();
+  }catch(e){}
+}
+function applyAmbientWeather(){ // fade rain layer with the per-run weather
+  if(!_ambRainG) return;
+  try{ _ambRainG.gain.setTargetAtTime(WEATHER==='rain'?0.14:0.0, getAC().currentTime, 1.2); }catch(e){}
+}
+// Called cheaply each frame; the boolean guard makes it a no-op once started.
+function _ambientTick(){ if(!_ambStarted && gameStarted && _ac && _ac.state==='running') startAmbientBed(); }
 
 // ---- Renderer (cinematic: AA, shadows, ACES tonemap, sRGB) ----
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -2250,6 +2419,7 @@ function livingAtmosphere(){
   WEATHER = Math.random()<0.5 ? 'rain' : 'clear';
   _fogBase = WEATHER==='rain' ? 0x070810 : 0x0a0e1c;
   if(scene.fog) scene.fog.color.setHex(_fogBase);
+  applyAmbientWeather(); // fade the ambient rain layer to match this run's weather
   if(WEATHER==='clear'){
     if(_rain) _rain.visible=false;
     for(let i=0;i<7;i++){ const cl=new THREE.Mesh(new THREE.PlaneGeometry(46+Math.random()*34,20),new THREE.MeshBasicMaterial({color:0x171d2c,transparent:true,opacity:.30,depthWrite:false,fog:false})); cl.rotation.x=-Math.PI/2.2; cl.position.set((Math.random()-.5)*170,58+Math.random()*22,(Math.random()-.5)*170); cl._sp=.4+Math.random()*.5; scene.add(cl); _clouds.push(cl); }
@@ -2845,9 +3015,10 @@ function spawnPowerup(x,z){
 }
 
 function collectPowerup(pu){
-  SFX('buy');
-  flashMsg(`☀ ${pu.type.label}!`);
   const t=pu.type.id;
+  // distinct stinger per powerup (same pickup event, richer/characterful sound)
+  SFX({max_ammo:'pu_max_ammo',dbl_pts:'pu_dbl_pts',nuke:'pu_nuke',insta_kill:'pu_insta_kill',fire_sale:'pu_fire_sale'}[t]||'buy');
+  flashMsg(`☀ ${pu.type.label}!`);
   if(t==='max_ammo'){PL.weapons.forEach(w=>{w.ammo=w.mag;w.reserve=w.res;});updateHUD();}
   else if(t==='dbl_pts'){dblPtsTimer=performance.now()+30000;}
   else if(t==='nuke'){ZOMBIES.forEach(z=>{if(!z.dead)z.hurt(99999,false);});PL.points+=400;updateHUD();}
@@ -2883,10 +3054,10 @@ const WDEFS={
   m1911:   {name:'M1911',      dmg:65,  mag:8,   res:48,  rate:370, rel:1500, auto:false,shots:1,spc:0,    snd:'pistol', cost:0},
   deagle:  {name:'Deagle',     dmg:140, mag:7,   res:42,  rate:500, rel:1800, auto:false,shots:1,spc:.01,  snd:'pistol', cost:0},
   python:  {name:'Python',     dmg:120, mag:6,   res:36,  rate:450, rel:1700, auto:false,shots:1,spc:0,    snd:'pistol', cost:0},
-  mp5:     {name:'MP5',        dmg:55,  mag:30,  res:120, rate:85,  rel:1800, auto:true, shots:1,spc:.025, snd:'rifle',  cost:800},
-  thompson:{name:'Thompson',   dmg:60,  mag:30,  res:120, rate:95,  rel:2000, auto:true, shots:1,spc:.028, snd:'rifle',  cost:0},
-  mp40:    {name:'MP40',       dmg:58,  mag:32,  res:128, rate:90,  rel:2000, auto:true, shots:1,spc:.026, snd:'rifle',  cost:0},
-  ppsh:    {name:'PPSh-41',    dmg:50,  mag:71,  res:213, rate:65,  rel:2500, auto:true, shots:1,spc:.03,  snd:'rifle',  cost:0},
+  mp5:     {name:'MP5',        dmg:55,  mag:30,  res:120, rate:85,  rel:1800, auto:true, shots:1,spc:.025, snd:'rifle',  sfx:'smg', cost:800},
+  thompson:{name:'Thompson',   dmg:60,  mag:30,  res:120, rate:95,  rel:2000, auto:true, shots:1,spc:.028, snd:'rifle',  sfx:'smg', cost:0},
+  mp40:    {name:'MP40',       dmg:58,  mag:32,  res:128, rate:90,  rel:2000, auto:true, shots:1,spc:.026, snd:'rifle',  sfx:'smg', cost:0},
+  ppsh:    {name:'PPSh-41',    dmg:50,  mag:71,  res:213, rate:65,  rel:2500, auto:true, shots:1,spc:.03,  snd:'rifle',  sfx:'smg', cost:0},
   m16:     {name:'M16A1',      dmg:88,  mag:30,  res:120, rate:110, rel:2200, auto:true, shots:1,spc:.022, snd:'rifle',  cost:1200},
   ak47:    {name:'AK-47',      dmg:95,  mag:30,  res:120, rate:120, rel:2300, auto:true, shots:1,spc:.03,  snd:'rifle',  cost:1200},
   famas:   {name:'FAMAS',      dmg:80,  mag:25,  res:100, rate:100, rel:2000, auto:true, shots:1,spc:.02,  snd:'rifle',  cost:1500},
@@ -2896,15 +3067,15 @@ const WDEFS={
   spas12:  {name:'SPAS-12',    dmg:60,  mag:6,   res:36,  rate:750, rel:2800, auto:false,shots:8,spc:.13,  snd:'shotgun',cost:1500},
   trenchgun:{name:'Trench Gun',dmg:70,  mag:6,   res:30,  rate:800, rel:3000, auto:false,shots:9,spc:.14,  snd:'shotgun',cost:0},
   m60:     {name:'M60',        dmg:95,  mag:100, res:300, rate:95,  rel:4500, auto:true, shots:1,spc:.028, snd:'heavy',  cost:0},
-  l96:     {name:'L96A1',      dmg:350, mag:5,   res:25,  rate:1200,rel:3000, auto:false,shots:1,spc:0,    snd:'heavy',  cost:1800},
+  l96:     {name:'L96A1',      dmg:350, mag:5,   res:25,  rate:1200,rel:3000, auto:false,shots:1,spc:0,    snd:'heavy',  sfx:'sniper', cost:1800},
   rpg:     {name:'RPG-7',      dmg:800, mag:1,   res:3,   rate:2500,rel:3000, auto:false,shots:1,spc:0,    snd:'heavy',  cost:0},
   minigun: {name:'Minigun',    dmg:55,  mag:250, res:500, rate:55,  rel:6000, auto:true, shots:1,spc:.045, snd:'heavy',  cost:0},
   thundergun:{name:'Thundergun',dmg:9999,mag:2,  res:8,   rate:2000,rel:3000, auto:false,shots:0,spc:0,    snd:'thunder',cost:0,wonder:true},
   wunder:  {name:'Wunderwaffe', dmg:500,mag:3,   res:12,  rate:2500,rel:3500, auto:false,shots:0,spc:0,    snd:'lightning',cost:0,wonder:true},
-  barrett: {name:'Barrett .50', dmg:450,mag:10,  res:40,  rate:900, rel:3200, auto:false,shots:1,spc:0,    snd:'heavy',  cost:2500},
-  mp7:     {name:'MP7',        dmg:52,  mag:40,  res:160, rate:70,  rel:1900, auto:true, shots:1,spc:.022, snd:'rifle',  cost:1400},
-  uzi:     {name:'Uzi',        dmg:48,  mag:32,  res:160, rate:70,  rel:1800, auto:true, shots:1,spc:.03,  snd:'rifle',  cost:0},
-  kar98:   {name:'Kar98k',     dmg:200, mag:5,   res:35,  rate:1100,rel:2600, auto:false,shots:1,spc:.005, snd:'rifle',  cost:1200},
+  barrett: {name:'Barrett .50', dmg:450,mag:10,  res:40,  rate:900, rel:3200, auto:false,shots:1,spc:0,    snd:'heavy',  sfx:'sniper', cost:2500},
+  mp7:     {name:'MP7',        dmg:52,  mag:40,  res:160, rate:70,  rel:1900, auto:true, shots:1,spc:.022, snd:'rifle',  sfx:'smg', cost:1400},
+  uzi:     {name:'Uzi',        dmg:48,  mag:32,  res:160, rate:70,  rel:1800, auto:true, shots:1,spc:.03,  snd:'rifle',  sfx:'smg', cost:0},
+  kar98:   {name:'Kar98k',     dmg:200, mag:5,   res:35,  rate:1100,rel:2600, auto:false,shots:1,spc:.005, snd:'rifle',  sfx:'sniper', cost:1200},
   scar:    {name:'SCAR-H',     dmg:100, mag:20,  res:120, rate:130, rel:2200, auto:true, shots:1,spc:.02,  snd:'rifle',  cost:1600},
   aug:     {name:'AUG',        dmg:78,  mag:30,  res:150, rate:95,  rel:2100, auto:true, shots:1,spc:.02,  snd:'rifle',  cost:1500},
 };
@@ -3459,7 +3630,7 @@ function doShoot(){
   }
 
   w.ammo--;w.lastShot=now;
-  SFX(w.pap?'pap_shoot':w.snd);
+  SFX(w.pap?'pap_shoot':(w.sfx||w.snd)); // w.sfx = optional sound-only class override (recoil still keyed off w.snd)
   gunRecoil=.08;
   // Camera recoil — pitch kick + slight random yaw drift
   const rcBase={pistol:.006,rifle:.007,heavy:.011,sniper:.020,thunder:.003,lightning:.003}[w.snd]||.006;
@@ -3763,6 +3934,7 @@ function doReload(){
 
 function switchWep(idx){
   if(idx>=PL.weapons.length)return;
+  if(idx!==PL.wIdx) SFX('wswitch'); // handling clack only when actually changing weapon
   PL.wIdx=idx;rebuildGunMesh();updateHUD();
 }
 
@@ -4776,6 +4948,7 @@ function loop(){
   const now=performance.now();
   const dt=Math.min((now-lastT)/1000,.05);
   lastT=now;
+  _ambientTick(); // starts the ambient bed once audio is live (no-op after that)
   // FPS (smoothed) + animated film grain
   if(dt>0){_fpsAcc+=1/dt;_fpsN++;if(_fpsN>=15){FPS=Math.round(_fpsAcc/_fpsN);_fpsAcc=0;_fpsN=0;}}
   if(_grainPass&&_grainPass.enabled) _grainPass.uniforms.uTime.value=now*0.001;

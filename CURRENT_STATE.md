@@ -2,7 +2,7 @@
 
 _Living snapshot for prompting. Updated at the end of every Map-V2 part._
 
-**Version:** v3.8.3 (cosmetic/HUD pass: revamped start screen, room-name HUD, open-and-display mystery box, fixed sign back-faces, wall-mounted power switches, Undercroft lighting, exact perk colors) · **Repo:** khatibapp/zombie-survival · branch `main`
+**Version:** v3.9.0 (synthesized-audio overhaul: per-weapon-class gunshots incl. SMG/sniper, mechanical reload/empty/weapon-switch, distinct powerup stingers, richer buy/perk, continuous rain/wind/room-tone ambient bed, master compressor + shared reverb IR, bounded voice-cap) · **Repo:** khatibapp/zombie-survival · branch `main`
 **Ship flow:** bump `package.json` → commit → `git tag vX.Y.Z` → push tag → GitHub Actions builds `ZombieSurvival-Setup-<ver>.exe` + `latest.yml` → in-app updater.
 
 ## What the game is
